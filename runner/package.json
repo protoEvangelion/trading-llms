@@ -2,7 +2,8 @@
   "name": "runner",
   "private": true,
   "scripts": {
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.2",

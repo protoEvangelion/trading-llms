@@ -32,7 +32,7 @@ const getChartData = createServerFn({ method: "GET" }).handler(() => {
   ].sort()
 
   return allTimestamps.map((ts) => {
-    const row: Record<string, unknown> = { timestamp: ts }
+    const row: Record<string, string | number> = { timestamp: ts }
     for (const { id, data } of histories) {
       const point = data.find((p) => p.timestamp === ts)
       if (point) {
@@ -165,7 +165,7 @@ function Dashboard() {
                 <Tooltip
                   contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 8 }}
                   labelFormatter={(v) => new Date(v).toLocaleString()}
-                  formatter={(v: number) => [`${v.toFixed(2)}%`]}
+                  formatter={(v) => [typeof v === "number" ? `${v.toFixed(2)}%` : "—"]}
                 />
                 <Legend />
                 {botIds.map((id, i) => (

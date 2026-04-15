@@ -59,21 +59,21 @@ export interface BotSummary {
 export function getAllBotSummaries(botIds: string[]): BotSummary[] {
   const db = getDb()
   return botIds.map((botId) => {
-    const latestPnl = db.prepare<PnlSnapshot, [string]>(
+    const latestPnl = (db.prepare(
       "SELECT * FROM pnl_snapshots WHERE bot_id = ? ORDER BY timestamp DESC LIMIT 1"
-    ).get(botId) ?? null
+    ).get(botId) as PnlSnapshot | undefined) ?? null
 
-    const firstPnl = db.prepare<PnlSnapshot, [string]>(
+    const firstPnl = (db.prepare(
       "SELECT * FROM pnl_snapshots WHERE bot_id = ? ORDER BY timestamp ASC LIMIT 1"
-    ).get(botId) ?? null
+    ).get(botId) as PnlSnapshot | undefined) ?? null
 
-    const lastDecision = db.prepare<Decision, [string]>(
+    const lastDecision = (db.prepare(
       "SELECT * FROM decisions WHERE bot_id = ? ORDER BY timestamp DESC LIMIT 1"
-    ).get(botId) ?? null
+    ).get(botId) as Decision | undefined) ?? null
 
-    const row = db.prepare<{ count: number }, [string]>(
+    const row = db.prepare(
       "SELECT COUNT(*) as count FROM decisions WHERE bot_id = ?"
-    ).get(botId)
+    ).get(botId) as { count: number } | undefined
     const totalDecisions = row?.count ?? 0
 
     let totalReturn: number | null = null
@@ -101,14 +101,27 @@ export function getAllBotSummaries(botIds: string[]): BotSummary[] {
 
 export function getPnlHistory(botId: string, limit = 500): PnlSnapshot[] {
   const db = getDb()
-  return db.prepare<PnlSnapshot, [string, number]>(
-    "SELECT * FROM pnl_snapshots WHERE bot_id = ? ORDER BY timestamp ASC LIMIT ?"
-  ).all(botId, limit)
+  // For backtest data, only return the most recent run to avoid duplicate sim_dates
+  // across multiple runs (which breaks chart x-axis lookups).
+  const latestRun = db.prepare(
+    "SELECT id FROM backtest_runs WHERE bot_id = ? AND status = 'completed' ORDER BY id DESC LIMIT 1"
+  ).get(botId) as { id: number } | undefined
+
+  if (latestRun) {
+    return db.prepare(
+      "SELECT * FROM pnl_snapshots WHERE backtest_run_id = ? ORDER BY sim_date ASC LIMIT ?"
+    ).all(latestRun.id, limit) as PnlSnapshot[]
+  }
+
+  // Live/paper trading: no backtest_run_id, return all
+  return db.prepare(
+    "SELECT * FROM pnl_snapshots WHERE bot_id = ? AND backtest_run_id IS NULL ORDER BY timestamp ASC LIMIT ?"
+  ).all(botId, limit) as PnlSnapshot[]
 }
 
 export function getDecisions(botId: string, limit = 50): Decision[] {
   const db = getDb()
-  return db.prepare<Decision, [string, number]>(
+  return db.prepare(
     "SELECT * FROM decisions WHERE bot_id = ? ORDER BY timestamp DESC LIMIT ?"
-  ).all(botId, limit)
+  ).all(botId, limit) as Decision[]
 }

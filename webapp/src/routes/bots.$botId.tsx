@@ -8,8 +8,8 @@ import { join } from "path"
 // ── server functions ──────────────────────────────────────────────────────────
 
 const getBotData = createServerFn({ method: "GET" })
-  .handler((ctx: { data: string }) => {
-    const botId = ctx.data
+  .inputValidator((data: string) => data)
+  .handler(({ data: botId }) => {
     const decisions = getDecisions(botId, 50)
     const pnlHistory = getPnlHistory(botId, 500)
     const raw = readFileSync(join(import.meta.dirname, "../../../bots.json"), "utf8")
@@ -29,7 +29,7 @@ function BotDetail() {
   const { decisions, pnlHistory, config } = Route.useLoaderData()
   const { botId } = Route.useParams()
 
-  const chartData = pnlHistory.map((p) => ({
+  const chartData = pnlHistory.map((p: typeof pnlHistory[number]) => ({
     timestamp: p.sim_date ?? p.timestamp,
     returnPct: ((p.portfolio_value - 100_000) / 100_000) * 100,
     spyPct: p.spy_value != null ? ((p.spy_value - 100_000) / 100_000) * 100 : undefined,
@@ -107,7 +107,7 @@ function BotDetail() {
                 <Tooltip
                   contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 8 }}
                   labelFormatter={(v) => String(v).slice(0, 10)}
-                  formatter={(v: number) => [`${v.toFixed(2)}%`]}
+                  formatter={(v) => [typeof v === "number" ? `${v.toFixed(2)}%` : "—"]}
                 />
                 <Legend />
                 <Line

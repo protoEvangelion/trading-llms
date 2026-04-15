@@ -46,6 +46,15 @@ export async function runBacktest(
   // Always run backtests against dev.db
   process.env.TRADING_ENV = "dev"
 
+  // Cap endDate to yesterday — daily bars aren't finalized until the next morning
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const maxEnd = yesterday.toISOString().slice(0, 10)
+  if (endDate > maxEnd) {
+    console.log(`[backtest:${bot.id}] endDate ${endDate} capped to ${maxEnd} (today's bars not yet finalized)`)
+    endDate = maxEnd
+  }
+
   const alpacaKey = process.env[bot.alpacaKeyEnv]
   const alpacaSecret = process.env[bot.alpacaSecretEnv]
 
@@ -107,6 +116,7 @@ export async function runBacktest(
   clearPositionReasons(bot.id)
 
   const pnlValues: number[] = [STARTING_CASH]
+  let lastSpyValue = STARTING_CASH
 
   try {
     for (let i = 0; i < tradingDays.length; i++) {
@@ -145,12 +155,13 @@ export async function runBacktest(
       pnlValues.push(portfolioValue)
 
       // SPY value: proportional to starting SPY price (what $100k in SPY would be worth)
-      let spyValue = STARTING_CASH
+      let spyValue = lastSpyValue
       try {
         const spyClose = await getClosePrice("SPY", day, alpacaKey, alpacaSecret)
         spyValue = (spyClose / spyStartPrice) * STARTING_CASH
-      } catch {
-        spyValue = pnlValues[pnlValues.length - 2] ?? STARTING_CASH  // carry forward on error
+        lastSpyValue = spyValue
+      } catch (err) {
+        console.warn(`[backtest:${bot.id}] SPY price fetch failed for ${day}, carrying forward $${lastSpyValue.toFixed(0)}: ${err instanceof Error ? err.message : String(err)}`)
       }
 
       logPnlSnapshot({

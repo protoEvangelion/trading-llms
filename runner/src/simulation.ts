@@ -174,8 +174,8 @@ export async function calculatePortfolioValue(
   let bars: Record<string, BarData[]> = {}
   try {
     bars = await getHistoricalBars(symbols, date, endDate.toISOString().slice(0, 10), key, secret)
-  } catch {
-    // Fall back to cost basis if price fetch fails
+  } catch (err) {
+    console.warn(`[simulation] Price fetch failed for ${symbols.join(",")} on ${date}, falling back to cost basis: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   let equityValue = 0

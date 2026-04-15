@@ -117,17 +117,8 @@ function migrate(db: Database) {
     )
   `)
 
-  // Keep for backward compat with existing data
-  db.run(`
-    CREATE TABLE IF NOT EXISTS position_theses (
-      bot_id        TEXT NOT NULL,
-      symbol        TEXT NOT NULL,
-      thesis        TEXT NOT NULL,
-      entered_at    TEXT NOT NULL,
-      entry_amount  REAL,
-      PRIMARY KEY (bot_id, symbol)
-    )
-  `)
+  // Drop legacy table (renamed to position_reasons)
+  db.run(`DROP TABLE IF EXISTS position_theses`)
 
   // ─── Backtest run metadata ────────────────────────────────────────────────────
   // Lives in dev.db only, but defining it in all envs is harmless.
