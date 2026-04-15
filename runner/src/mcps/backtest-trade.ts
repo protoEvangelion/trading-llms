@@ -84,11 +84,9 @@ interface BarsResponse {
 }
 
 async function getHistoricalOpen(symbol: string, date: string): Promise<number> {
-  // Fetch up to 3 days starting from simDate to handle gaps (e.g. Monday holiday)
+  // end = date itself — Alpaca free tier 403s if end > the query date
   const start = date
-  const endDate = new Date(date)
-  endDate.setDate(endDate.getDate() + 3)
-  const end = endDate.toISOString().slice(0, 10)
+  const end = date
 
   const url = new URL(`${ALPACA_DATA_BASE}/v2/stocks/bars`)
   url.searchParams.set("symbols", symbol.toUpperCase())
@@ -124,14 +122,12 @@ async function getHistoricalOpen(symbol: string, date: string): Promise<number> 
 
 
 async function getHistoricalClose(symbol: string, date: string): Promise<number> {
-  const endDate = new Date(date)
-  endDate.setDate(endDate.getDate() + 1)
-
+  // end = date itself — Alpaca free tier 403s if end > the query date
   const url = new URL(`${ALPACA_DATA_BASE}/v2/stocks/bars`)
   url.searchParams.set("symbols", symbol.toUpperCase())
   url.searchParams.set("timeframe", "1Day")
   url.searchParams.set("start", date)
-  url.searchParams.set("end", endDate.toISOString().slice(0, 10))
+  url.searchParams.set("end", date)
   url.searchParams.set("limit", "2")
   url.searchParams.set("feed", "sip")
   url.searchParams.set("adjustment", "split")

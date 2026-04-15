@@ -161,6 +161,7 @@ function BotDetail() {
                 args: unknown
                 result: string
               }>
+              const errorCalls = toolCalls.filter((tc) => isToolError(tc.result))
               const displayDate = d.sim_date
                 ? `${d.sim_date} (sim)`
                 : new Date(d.timestamp).toLocaleString()
@@ -174,6 +175,11 @@ function BotDetail() {
                     {d.amount && (
                       <span className="text-gray-400 text-sm">
                         ${d.amount.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                      </span>
+                    )}
+                    {errorCalls.length > 0 && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-950 text-red-400">
+                        {errorCalls.length} error{errorCalls.length > 1 ? "s" : ""}
                       </span>
                     )}
                     <span className="ml-auto text-xs text-gray-500">{displayDate}</span>
@@ -192,17 +198,21 @@ function BotDetail() {
                           Tool calls ({toolCalls.length})
                         </p>
                         <div className="space-y-2">
-                          {toolCalls.map((tc, i) => (
-                            <details key={i} className="bg-gray-950 rounded-lg overflow-hidden group/tc">
-                              <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer list-none hover:bg-gray-900/50 transition-colors">
-                                <span className="text-xs font-mono text-indigo-400">{tc.tool}</span>
-                                <span className="ml-auto text-xs text-gray-600 group-open/tc:rotate-180 transition-transform">▼</span>
-                              </summary>
-                              <div className="px-3 pb-3 border-t border-gray-800/50 pt-2">
-                                <p className="text-xs text-gray-400 whitespace-pre-wrap font-mono leading-relaxed">{tc.result}</p>
-                              </div>
-                            </details>
-                          ))}
+                          {toolCalls.map((tc, i) => {
+                            const hasError = isToolError(tc.result)
+                            return (
+                              <details key={i} className={`rounded-lg overflow-hidden group/tc ${hasError ? "bg-red-950/30 border border-red-900/50" : "bg-gray-950"}`}>
+                                <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer list-none hover:bg-gray-900/50 transition-colors">
+                                  <span className={`text-xs font-mono ${hasError ? "text-red-400" : "text-indigo-400"}`}>{tc.tool}</span>
+                                  {hasError && <span className="text-xs text-red-500">error</span>}
+                                  <span className="ml-auto text-xs text-gray-600 group-open/tc:rotate-180 transition-transform">▼</span>
+                                </summary>
+                                <div className="px-3 pb-3 border-t border-gray-800/50 pt-2">
+                                  <p className={`text-xs whitespace-pre-wrap font-mono leading-relaxed ${hasError ? "text-red-400" : "text-gray-400"}`}>{tc.result}</p>
+                                </div>
+                              </details>
+                            )
+                          })}
                         </div>
                       </div>
                     )}
@@ -242,6 +252,10 @@ function StatCard({
       </p>
     </div>
   )
+}
+
+function isToolError(result: string): boolean {
+  return /^Error|403|401|error \d{3}/i.test(result)
 }
 
 function ActionBadge({ action }: { action: string }) {

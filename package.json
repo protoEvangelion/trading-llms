@@ -8,7 +8,8 @@
     "dev": "bunx concurrently --names runner,webapp --prefix-colors blue,green \"bun run runner\" \"bun run webapp\"",
     "run-now": "bun run runner/src/index.ts --run-now",
     "init": "bun run runner/src/index.ts --init",
-    "typecheck": "tsgo --noEmit --project webapp/tsconfig.json && tsgo --noEmit --project runner/tsconfig.json"
+    "typecheck": "tsgo --noEmit --project webapp/tsconfig.json && tsgo --noEmit --project runner/tsconfig.json",
+    "test": "bun test --cwd runner src"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

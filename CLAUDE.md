@@ -1,4 +1,6 @@
-Always use **Bun**, never `node` or `ts-node`. All scripts run via `bun run <file>`. Always run bun run typecheck after making ts(x) file changes. 
+Always use **Bun**, never `node` or `ts-node`. All scripts run via `bun run <file>`. 
+Always run `bun run typecheck` & `bun run test` after making ts(x) file changes. 
+Don't overcomplicate unit tests, or add every edge case under the sun. as you discover edge cases, add a test case.
 
 ## Repo Layout
 

@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "start": "bun run src/index.ts",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test src"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.2",

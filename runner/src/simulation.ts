@@ -58,6 +58,17 @@ export function makeStateFilePath(dataDir: string, runId: number): string {
 
 // ─── Alpaca Data API ──────────────────────────────────────────────────────────
 
+/**
+ * Alpaca free tier blocks SIP queries where end >= yesterday (relative to now).
+ * Cap the end param to min(desired end, the start date + offset) so we never
+ * send a window that bleeds into "recent" territory.
+ * The safest cap is the query date itself — data for that date is available
+ * as long as end === that date exactly.
+ */
+export function capEnd(desiredEnd: string, queryDate: string): string {
+  return desiredEnd > queryDate ? queryDate : desiredEnd
+}
+
 const ALPACA_DATA_BASE = "https://data.alpaca.markets"
 
 interface BarData {
@@ -129,7 +140,8 @@ export async function getOpenPrice(
 ): Promise<number> {
   const endDate = new Date(date)
   endDate.setDate(endDate.getDate() + 4)
-  const bars = await getHistoricalBars([symbol], date, endDate.toISOString().slice(0, 10), key, secret)
+  const end = capEnd(endDate.toISOString().slice(0, 10), date)
+  const bars = await getHistoricalBars([symbol], date, end, key, secret)
   const symbolBars = bars[symbol.toUpperCase()]
   if (!symbolBars || symbolBars.length === 0) {
     throw new Error(`No bar data for ${symbol} from ${date}`)
@@ -148,7 +160,8 @@ export async function getClosePrice(
 ): Promise<number> {
   const endDate = new Date(date)
   endDate.setDate(endDate.getDate() + 4)
-  const bars = await getHistoricalBars([symbol], date, endDate.toISOString().slice(0, 10), key, secret)
+  const end = capEnd(endDate.toISOString().slice(0, 10), date)
+  const bars = await getHistoricalBars([symbol], date, end, key, secret)
   const symbolBars = bars[symbol.toUpperCase()]
   if (!symbolBars || symbolBars.length === 0) {
     throw new Error(`No bar data for ${symbol} from ${date}`)
@@ -170,10 +183,11 @@ export async function calculatePortfolioValue(
   const symbols = Object.keys(state.positions)
   const endDate = new Date(date)
   endDate.setDate(endDate.getDate() + 4)
+  const end = capEnd(endDate.toISOString().slice(0, 10), date)
 
   let bars: Record<string, BarData[]> = {}
   try {
-    bars = await getHistoricalBars(symbols, date, endDate.toISOString().slice(0, 10), key, secret)
+    bars = await getHistoricalBars(symbols, date, end, key, secret)
   } catch (err) {
     console.warn(`[simulation] Price fetch failed for ${symbols.join(",")} on ${date}, falling back to cost basis: ${err instanceof Error ? err.message : String(err)}`)
   }

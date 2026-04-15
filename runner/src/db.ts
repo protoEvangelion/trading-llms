@@ -25,6 +25,12 @@ export function getDb(): Database {
   return _db
 }
 
+/** For tests only — resets the singleton so a fresh DB can be opened */
+export function _resetDb() {
+  _db?.close()
+  _db = null
+}
+
 function migrate(db: Database) {
   // ─── Core tables (same schema in dev / staging / prod) ───────────────────────
 
