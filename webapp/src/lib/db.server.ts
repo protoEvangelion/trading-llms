@@ -121,7 +121,18 @@ export function getPnlHistory(botId: string, limit = 500): PnlSnapshot[] {
 
 export function getDecisions(botId: string, limit = 50): Decision[] {
   const db = getDb()
+  // For backtest data, only return decisions from the most recent run
+  const latestRun = db.prepare(
+    "SELECT id FROM backtest_runs WHERE bot_id = ? AND status = 'completed' ORDER BY id DESC LIMIT 1"
+  ).get(botId) as { id: number } | undefined
+
+  if (latestRun) {
+    return db.prepare(
+      "SELECT * FROM decisions WHERE backtest_run_id = ? ORDER BY sim_date DESC, timestamp DESC LIMIT ?"
+    ).all(latestRun.id, limit) as Decision[]
+  }
+
   return db.prepare(
-    "SELECT * FROM decisions WHERE bot_id = ? ORDER BY timestamp DESC LIMIT ?"
+    "SELECT * FROM decisions WHERE bot_id = ? AND backtest_run_id IS NULL ORDER BY timestamp DESC LIMIT ?"
   ).all(botId, limit) as Decision[]
 }

@@ -136,16 +136,26 @@ function BotDetail() {
 
         {/* System prompt / thesis */}
         {config && (
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
-            <h2 className="text-base font-semibold text-white mb-3">Thesis / System Prompt</h2>
-            <pre className="text-sm text-gray-400 whitespace-pre-wrap font-mono leading-relaxed">
-              {config.system_prompt}
-            </pre>
-            <div className="flex gap-4 mt-4 text-xs text-gray-500">
-              <span>Model: <span className="text-gray-300">{config.model}</span></span>
-              <span>Cron: <span className="text-gray-300 font-mono">{config.cron}</span></span>
+          <details className="bg-gray-900 border border-gray-800 rounded-xl mb-6 group/thesis">
+            <summary className="flex items-center justify-between px-6 py-4 cursor-pointer list-none">
+              <div>
+                <h2 className="text-base font-semibold text-white">Thesis / System Prompt</h2>
+                <p className="text-xs text-gray-500 mt-0.5 line-clamp-1 max-w-xl">
+                  {config.system_prompt.split("\n\n")[0]}
+                </p>
+              </div>
+              <span className="text-xs text-gray-600 group-open/thesis:rotate-180 transition-transform ml-4 shrink-0">▼</span>
+            </summary>
+            <div className="px-6 pb-6 border-t border-gray-800 pt-4">
+              <pre className="text-sm text-gray-400 whitespace-pre-wrap font-mono leading-relaxed">
+                {config.system_prompt}
+              </pre>
+              <div className="flex gap-4 mt-4 text-xs text-gray-500">
+                <span>Model: <span className="text-gray-300">{config.model}</span></span>
+                <span>Cron: <span className="text-gray-300 font-mono">{config.cron}</span></span>
+              </div>
             </div>
-          </div>
+          </details>
         )}
 
         {/* Decision log */}
