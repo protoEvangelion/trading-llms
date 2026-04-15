@@ -2,36 +2,91 @@
 
 ## Overview
 
-A thesis-driven, AI-powered paper trading framework. An LLM continuously monitors Trump's Truth Social posts, maps them to market sector signals, executes trades via Alpaca, and logs reasoning for every decision. A React webapp provides real-time visibility into performance.
+A thesis-driven, AI-powered trading framework. The core idea: given any investment thesis, an LLM agent executes that thesis autonomously on a schedule — gathering signals, analyzing positions, and making trades. Multiple theses are raced against each other and against the S&P 500 through a structured promotion pipeline before any real capital is deployed.
+
+Trump Signal Bot and Data Center Infrastructure Bot are **example implementations** of this framework, not the purpose of it.
+
+---
+
+## Thesis Promotion Pipeline
+
+```
+You define a thesis
+      │
+      ▼
+┌─────────────────────────────────────────────────────┐
+│  BACKTESTING  (dev.db, historical simulation)        │
+│  • Same agent, fake clock (SIM_DATE)                 │
+│  • Posts/news capped to simDate — no lookahead       │
+│  • Fills at historical open price via Alpaca OHLCV   │
+│  • 1 tick per trading day (respects bot's cron)      │
+│                                                      │
+│  Promotion gate:                                     │
+│    total return > SPY (same period)                  │
+│    AND max drawdown < 30%                            │
+│    AND human approval                                │
+└──────────────────────┬──────────────────────────────┘
+                       │ promoted
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│  PAPER TRADING  (staging.db, Alpaca paper account)   │
+│  • Live market data, real signals, no real money     │
+│  • Same agent, same prompt, real-time execution      │
+│                                                      │
+│  Promotion gate:                                     │
+│    positive return over 30 days                      │
+│    AND return > SPY (same 30-day window)             │
+│    AND human approval                                │
+└──────────────────────┬──────────────────────────────┘
+                       │ promoted
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│  REAL TRADING  (prod.db, Alpaca live account)        │
+│  • Real capital, same agent                          │
+└─────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                        runner/                          │
-│                                                         │
-│  index.ts ──► scheduler.ts ──► bot-runner.ts            │
-│                                    │                    │
-│                         ┌──────────┼──────────┐         │
-│                         ▼          ▼          ▼         │
-│                      llm.ts   alpaca.ts    db.ts         │
-│                         │                    │          │
-│                   mcp-client.ts         trading.db       │
-│                    /    |    \                           │
-│          truth-social  web   alpaca-trade                │
-│                       -search                           │
-└─────────────────────────────────────────────────────────┘
-                              │ SQLite (WAL, read-only)
-┌─────────────────────────────────────────────────────────┐
-│                        webapp/                          │
-│                                                         │
-│  TanStack Router + Start (SSR, Vite)                    │
-│  routes/index.tsx      ── dashboard, bot race chart     │
-│  routes/bots.$botId.tsx ── per-bot P&L, decision log    │
-│  lib/db.server.ts      ── read-only SQLite queries      │
-└─────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                         runner/                           │
+│                                                           │
+│  index.ts ──► scheduler.ts ──► bot-runner.ts              │
+│       │            │                                      │
+│       │       backtest-runner.ts                          │
+│       │            │                                      │
+│       │      SimulationContext                            │
+│       │   (fake clock + JSON state file)                  │
+│       │            │                                      │
+│       ▼       ┌────┴────────┐                             │
+│  TRADING_ENV  │             │                             │
+│  dev.db       db.ts      alpaca.ts                        │
+│  staging.db      │                                        │
+│  prod.db         │                                        │
+│                  │                                        │
+│  ┌───────────────┴──────────┐    MCP servers (stdio)      │
+│  │  Core tables (all envs)  │    /        |        \      │
+│  │  decisions               │  trump-   web-   alpaca-    │
+│  │  pnl_snapshots           │  posts   search   trade     │
+│  │  position_reasons        │                             │
+│  │  backtest_runs           │                             │
+│  └──────────────────────────┘                             │
+│                                                           │
+│  data/trump_posts → shared trump_posts table              │
+│  (scraper writes trading.db; MCP reads trading.db)        │
+└───────────────────────────────────────────────────────────┘
+                     │ SQLite (WAL, read-only)
+┌───────────────────────────────────────────────────────────┐
+│                         webapp/                           │
+│  TanStack Router + Start (SSR, Vite)                      │
+│  routes/index.tsx           ── promotion pipeline Kanban  │
+│  routes/backtest.$runId.tsx ── backtest detail + results  │
+│  routes/bots.$botId.tsx     ── live/paper bot detail      │
+│  lib/db.server.ts           ── read-only SQLite queries   │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ### Tech Stack
@@ -40,336 +95,381 @@ A thesis-driven, AI-powered paper trading framework. An LLM continuously monitor
 |---|---|
 | Runtime | Bun |
 | Language | TypeScript |
-| LLM | Groq (`llama-3.3-70b-versatile`) via OpenAI-compatible API |
-| Tool integration | Model Context Protocol (MCP), stdio transport |
-| Broker | Alpaca Markets (paper trading) |
+| LLM provider | OpenRouter (`google/gemini-3-flash-preview` default; configurable per bot) |
+| LLM client | OpenAI SDK (OpenRouter is OpenAI-compatible) |
+| Broker | Alpaca Markets (paper + live) |
 | Database | SQLite via `bun:sqlite`, WAL mode |
+| MCP servers | Hand-rolled stdio transport (`mcp-client.ts`), one child process per run |
 | Frontend | React 19, TanStack Router/Start, Recharts, Tailwind CSS |
 | Scheduling | croner (cron expressions, `America/New_York` timezone) |
-| Signal scraping | Playwright headless Chromium (Truth Social, Cloudflare bypass) |
+| Signal scraping | Playwright headless Chromium (Cloudflare bypass for Truth Social) |
+| Deployment | Local, Mac mini. LLMs from cloud providers — no local models. |
+
+---
+
+## Database Layout (dev / staging / prod)
+
+Three separate SQLite files, same schema:
+
+| File | Environment | Used for |
+|---|---|---|
+| `data/dev.db` | `TRADING_ENV=dev` | Backtesting |
+| `data/staging.db` | `TRADING_ENV=staging` (default) | Paper trading |
+| `data/prod.db` | `TRADING_ENV=prod` | Live trading |
+
+`--backtest` CLI flag automatically sets `TRADING_ENV=dev`. The `--env=` flag overrides explicitly.
+
+`data/trading.db` is a legacy file used only by `trump_posts` (the scraper writes there; the trump-posts MCP reads there). It is not a runner environment DB.
 
 ---
 
 ## Bot Execution Flow
 
+The same agent runs in all three environments. The only difference is what the tools see.
+
 ```
-Scheduler fires (cron)
-  └─► runBot(bot)
-        ├─ Boot MCP clients (3 child processes via stdio)
-        ├─ Load active position theses from DB
-        ├─ Build initial prompt:
-        │    system_prompt + current datetime + thesis context
-        │    + "check portfolio, then gather signals"
+Scheduler fires (or backtest-runner advances clock)
+  └─► runBot(bot, backtestCtx?)
+        ├─ Build MCP list: inject credentials; swap alpaca-trade → backtest-alpaca-trade if backtest
+        ├─ Boot MCP child processes (stdio)
+        ├─ Load open position_reasons → inject into prompt
+        │    ("You currently hold XLE because: ...")
+        ├─ Build user message:
+        │    current datetime  ← simDateTime if backtest, real now if live
+        │    + anti-lookahead reminder (backtest only)
+        │    + position reasons context block
+        │    + "check portfolio, gather signals, decide"
         └─ Agentic loop (max 10 iterations):
-              LLM call
-                ├─ No tool calls → finalAction = "no_action", break
-                └─ Tool calls dispatched to MCP servers:
-                      get_truth_social_posts
-                      web_search
+              LLM call (temp 0.3, max 1024 tokens, brevity directive injected)
+                └─ Tool calls dispatched to MCP child processes:
+                      get_trump_posts(lookback_days=7)
+                           ← queries trump_posts (capped to simDate in backtest)
+                      web_search(query)
+                           ← Alpaca News API (capped to simDate in backtest)
                       get_portfolio
+                           ← sim state file (backtest) | Alpaca API (live)
                       get_recent_orders
-                      buy_stock  ──► terminal, upsert thesis, break
-                      sell_stock ──► terminal, (delete thesis if full exit), break
-                      do_nothing ──► terminal, break
+                      buy_stock  ──► terminal; fill at open price
+                      sell_stock ──► terminal; fill at open price
+                      do_nothing ──► terminal
               ↑ repeat until terminal or max iterations
-        ├─ logDecision() → decisions table
-        ├─ logPnlSnapshot() → pnl_snapshots table
-        └─ Shutdown MCP clients
+        ├─ upsert/close position_reasons on buy/sell
+        └─ logDecision() → decisions table (backtestRunId set for backtest rows)
+
+Backtest only — after each trading day:
+  └─ calculatePortfolioValue() → logPnlSnapshot() with backtestRunId + simDate + spyValue
 ```
 
 ### Agentic Loop Constraints
 
 - Max 10 iterations per run
-- Temperature 0.3 (deterministic)
-- Max 4096 output tokens
-- Max 5 open positions (soft, enforced via system prompt)
-- Max 20% portfolio per position (hard, enforced by `buy_stock` tool pre-flight)
+- Temperature 0.3
+- Max 1024 output tokens (hard cap — reduces completion cost; agents are instructed to be terse)
+- No hard position size limits — agent decides conviction and allocation freely
+
+### Brevity Directive (middleware)
+
+`llm.ts` appends a brevity directive to every system message before the API call — no per-bot configuration needed:
+
+```
+RESPONSE STYLE: Be extremely terse. No preamble, no summaries, no explanations of what
+you're doing. Think in bullet points. When reasoning, use fragments. Every word costs money.
+```
+
+This is injected in `injectBrevity()` inside `callLLM()`, applied universally to all bots.
+The `max_tokens` ceiling was reduced from 4096 → 1024 simultaneously. Typical completion
+usage is ~200–300 tokens per call; the new ceiling gives 3–4× headroom without allowing runaway prose.
+
+---
+
+## Backtesting
+
+### How It Works
+
+Backtesting uses the **same agent** with a `BacktestContext` injected that controls the fake clock and routes trading tool calls to a simulation MCP.
+
+```typescript
+interface BacktestContext {
+  simDateTime: string   // "2025-04-14T09:15:00" — agent thinks this is "now"
+  stateFilePath: string // JSON file shared between runner and backtest MCP
+  backtestRunId: number // foreign key for DB logging
+}
+```
+
+The state file is a JSON document on disk that the backtest MCP reads/writes on every tool call. It holds cash, positions, and filled orders for the current run.
+
+### Cron Respecting
+
+`getSimDateTimes(day, bot.cron)` parses the bot's cron expression and returns one ISO datetime per scheduled tick on that trading day. With `15 9 * * 1-5`, that's one tick at 9:15 AM — one agent run per trading day. The backtest loop runs exactly as many ticks per day as production would.
+
+### Lookahead Bias Controls
+
+| Layer | What's protected |
+|---|---|
+| `get_trump_posts` | `posted_at <= simDate` — no future posts |
+| `web_search` | Alpaca News API `end=simDate` — no future news |
+| `get_portfolio` | sim state file — only sees fills made during the run |
+| `buy_stock` / `sell_stock` | fill at simDate open price via Alpaca OHLCV |
+
+**Known limitation:** LLM training weights may contain knowledge of outcomes within the backtest window. The system prompt instructs the agent to trade only on observed signals, not on training-data knowledge. Treat backtest results as optimistic upper bounds; relative performance (thesis vs SPY, thesis A vs thesis B) is more meaningful than absolute returns.
+
+### Fill Price
+
+Trades fill at the **open price of simDate** fetched from Alpaca OHLCV. The agent runs pre-market (9:15 AM ET), decisions are made before the open, and fills are at the opening print. No intraday lookahead.
+
+---
+
+## MCP Servers
+
+Each MCP server runs as a Bun child process over stdio, booted at the start of each run and shut down after. Credentials are injected per-run via the `env` field on `McpConfig`.
+
+### `trump-posts`
+
+Queries `trump_posts` table in `data/trading.db` (read-only). Never scrapes live during an agent run.
+
+- Tool: `get_trump_posts(lookback_days: 1–30)` — default 7
+- In backtest mode: `SIM_DATE` env var caps results to `posted_at <= simDate`
+- Response size guard: if response exceeds ~4000 tokens, returns an error telling the agent to halve `lookback_days`
+
+### `web-search`
+
+Financial queries → Alpaca News API (`data.alpaca.markets/v1beta1/news`).
+General queries → DuckDuckGo Instant Answer API (no-op in backtest mode).
+
+- In backtest mode: `SIM_DATE` env var caps Alpaca News `end` param
+
+### `alpaca-trade` (live/paper)
+
+Real Alpaca API calls. Bot credentials injected per-run.
+
+- Tools: `get_portfolio`, `buy_stock`, `sell_stock`, `do_nothing`, `get_recent_orders`
+- No hard position size limits — agent allocates freely
+
+### `backtest-alpaca-trade` (backtest only)
+
+Simulates portfolio via a JSON state file on disk. Uses Alpaca OHLCV historical endpoint for fill prices.
+
+- Swapped in by `bot-runner.ts` when `BacktestContext` is present
+- Reads/writes `BACKTEST_STATE_FILE` on every tool call
+- No real orders submitted
+
+---
+
+## Data Schema
+
+All tables exist in all three env DBs (dev/staging/prod) with the same schema. `backtest_run_id` and `sim_date` columns on `decisions` and `pnl_snapshots` distinguish backtest rows from live rows.
+
+### `decisions`
+
+Every bot run outcome.
+
+```sql
+CREATE TABLE decisions (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  bot_id           TEXT NOT NULL,
+  mode             TEXT NOT NULL DEFAULT 'live',  -- live | paper | backtest
+  timestamp        TEXT NOT NULL,                 -- real wall-clock time of run
+  reasoning        TEXT,
+  action           TEXT NOT NULL,  -- buy_stock | sell_stock | do_nothing | no_action | error | max_iterations
+  symbol           TEXT,
+  amount           REAL,
+  fill_price       REAL,
+  tool_calls       TEXT NOT NULL DEFAULT '[]',  -- JSON: [{tool, args, result}]
+  backtest_run_id  INTEGER REFERENCES backtest_runs(id),  -- NULL for live/paper
+  sim_date         TEXT                                   -- NULL for live/paper
+)
+```
+
+### `pnl_snapshots`
+
+End-of-day portfolio value snapshots.
+
+```sql
+CREATE TABLE pnl_snapshots (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  bot_id           TEXT NOT NULL,
+  mode             TEXT NOT NULL DEFAULT 'live',
+  timestamp        TEXT NOT NULL,
+  portfolio_value  REAL NOT NULL,
+  cash             REAL NOT NULL,
+  positions        TEXT NOT NULL DEFAULT '{}',
+  spy_value        REAL,                                  -- SPY equivalent on same date
+  backtest_run_id  INTEGER REFERENCES backtest_runs(id),
+  sim_date         TEXT
+)
+```
+
+### `position_reasons`
+
+LLM's stated reasoning for each open (or historically open) position. Injected back into prompt on every subsequent run so the agent can re-evaluate conviction.
+
+```sql
+CREATE TABLE position_reasons (
+  bot_id        TEXT NOT NULL,
+  symbol        TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  entered_at    TEXT NOT NULL,
+  entry_amount  REAL,
+  closed_at     TEXT,           -- NULL = open; set on full exit, never auto-deleted
+  PRIMARY KEY (bot_id, symbol)
+)
+```
+
+Rows are never deleted automatically. `closed_at` is set on full exit. Manual pruning when deprecating a thesis.
+
+### `backtest_runs`
+
+Metadata for each backtest execution.
+
+```sql
+CREATE TABLE backtest_runs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  bot_id        TEXT NOT NULL,
+  started_at    TEXT NOT NULL,
+  completed_at  TEXT,
+  sim_start     TEXT NOT NULL,
+  sim_end       TEXT NOT NULL,
+  status        TEXT NOT NULL,   -- running | completed | failed
+  total_return  REAL,
+  spy_return    REAL,
+  max_drawdown  REAL,
+  beats_spy     INTEGER          -- 0 | 1
+)
+```
+
+### `trump_posts`
+
+Scraped Trump Truth Social posts. Lives in `data/trading.db` (written by scraper, read by trump-posts MCP). Not in the env-specific DBs.
+
+```sql
+CREATE TABLE trump_posts (
+  post_id    TEXT PRIMARY KEY,
+  content    TEXT NOT NULL,
+  posted_at  TEXT NOT NULL,
+  is_retruth INTEGER NOT NULL DEFAULT 0,
+  scraped_at TEXT NOT NULL
+)
+-- Index: (posted_at DESC)
+```
 
 ---
 
 ## Bot Registry
 
-Bots are declared in `bots.json` (not committed; loaded at runtime). Each bot has:
+Bots are defined in `runner/src/bots.ts`. Each entry is an `ScheduledBotConfig`:
 
 ```typescript
-interface BotConfig {
+interface ScheduledBotConfig extends BotConfig {
   id: string
   name: string
   description?: string
-  model: string
+  model: string                // OpenRouter model ID
   system_prompt: string
-  alpacaKeyEnv: string       // env var name for this bot's Alpaca key
+  alpacaKeyEnv: string         // env var names for this bot's Alpaca credentials
   alpacaSecretEnv: string
   alpacaEndpointEnv: string
   mcps: McpConfig[]
-  cron: string               // standard 5-field cron, ET timezone
+  cron: string                 // 5-field cron, America/New_York
+  enabled: boolean
+  preRunScript?: string[]      // optional command to run before each scheduled tick
 }
 ```
 
 ### Current Bots
 
 **`trump-bot` — Trump Signal Bot**
-- Thesis: Trump's Truth Social posts signal policy shifts that move market sectors before mainstream news catches up
-- Schedule: `0 */4 * * 1-5` (every 4 hours, weekdays)
-- Alpaca account: paper trading, separate credentials per bot
-- Signal → sector mappings (hardcoded in system prompt):
+- Thesis: Trump's Truth Social posts signal policy shifts before mainstream news catches up
+- Schedule: `15 9 * * 1-5` (9:15 AM ET, 15 min before market open, weekdays)
+- preRunScript: `bun run scripts/scrape-trump-posts.ts --update` (runs fresh before each tick)
+- Model: `google/gemini-3-flash-preview`
+- MCPs: `trump-posts` + `web-search` + `alpaca-trade`
+- Lookback: 7 days of posts (last week), default in MCP
 
-| Signal | Tickers |
+**`datacenter-bot` — Data Center Infrastructure Bot**
+- Thesis: AI/cloud demand structurally undersupplies physical data center infrastructure for a decade
+- Schedule: `45 3 * * 1-5` (3:45 AM ET pre-open, once daily, weekdays)
+- Strategy: long-biased, buy-and-hold; sells only on thesis invalidation
+- MCPs: `web-search` + `alpaca-trade` (no Truth Social — not politically driven)
+
+---
+
+## Position Memory
+
+On `buy_stock` → upsert `position_reasons` row with LLM's stated reasoning.
+On next run → load all open reasons and inject into system prompt verbatim so the agent can re-evaluate.
+On `sell_stock` (full) → set `closed_at` on the reason row.
+On `sell_stock` (partial) → update `entry_amount` in reason row.
+
+Reason rows survive process restarts and are never auto-deleted. Manual or CLI-assisted pruning when deprecating a losing thesis.
+
+---
+
+## Signal Freshness (trump-bot)
+
+The `preRunScript` field on trump-bot runs `scrape-trump-posts.ts --update` immediately before the agent fires at 9:15 AM. This ensures the DB contains posts up to minutes before the run.
+
+In backtest mode, the scraper is not involved — all posts are already in `trading.db` and the MCP filters by `simDate`.
+
+---
+
+## Promotion Criteria
+
+| Gate | Requirement |
 |---|---|
-| Iran tensions / military | USO, XLE, XOM, CVX, LMT, RTX, NOC |
-| China tariffs | domestic manufacturers ↑, importers ↓ |
-| Crypto / bitcoin support | MSTR, COIN, IBIT |
-| "Drill baby drill" / energy | XLE, XOM, HAL |
-| Fed criticism / rate cuts | GLD, REIT ETFs |
-| Healthcare attacks | sell pharma |
-| Infrastructure / made in USA | X, NUE, XLI |
-| Palantir / war-tech praise | PLTR |
-| Immigration crackdown | GEO, CXW |
+| Backtest → Paper | Total return > SPY AND max drawdown < 30% AND human approval |
+| Paper → Real | Positive return AND return > SPY (30-day window) AND human approval |
+
+Human approval is always required. Metrics surface in the webapp.
 
 ---
 
-## MCP Servers
+## Environment Variables
 
-Each MCP server runs as a child process with stdio transport. Credentials are injected per-run by `bot-runner.ts`.
-
-### `truth-social`
-- Fetches Trump's posts via Playwright headless Chromium
-- Bypasses Cloudflare bot detection
-- Account ID cached in memory; posts deduplicated via `seen_content` table
-- Tool: `get_truth_social_posts(lookback_hours, max_posts)`
-
-### `web-search`
-- Financial queries → Alpaca News API (`data.alpaca.markets/v1beta1/news`)
-- General queries → DuckDuckGo Instant Answer API (no key required)
-- Keyword → ticker mapping for news queries (e.g. "Iran oil" → USO, XLE, XOM, CVX)
-- Tool: `web_search(query, use_financial_news)`
-
-### `alpaca-trade`
-- Reads generic `ALPACA_KEY` / `ALPACA_SECRET` / `ALPACA_ENDPOINT` env vars
-- Tools: `get_portfolio`, `buy_stock`, `sell_stock`, `do_nothing`, `get_recent_orders`
-- `buy_stock` enforces 20% position limit before submitting order
-- `sell_stock` with no `dollar_amount` → `closePosition()` (full exit)
-
----
-
-## Database Schema
-
-SQLite at `data/trading.db`. WAL mode enabled. Migrations run inline in `getDb()`.
-
-### `decisions`
-Logs every bot run, including runs where no trade was made.
-
-```sql
-CREATE TABLE decisions (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  bot_id     TEXT NOT NULL,
-  timestamp  TEXT NOT NULL,
-  reasoning  TEXT,                        -- LLM's explanation
-  action     TEXT NOT NULL,               -- buy_stock | sell_stock | do_nothing | no_action | error | max_iterations
-  symbol     TEXT,
-  amount     REAL,
-  tool_calls TEXT NOT NULL DEFAULT '[]'   -- JSON: [{tool, args, result}]
-)
-```
-
-Index: `(bot_id, timestamp DESC)`
-
-### `pnl_snapshots`
-Point-in-time portfolio snapshots taken after every bot run.
-
-```sql
-CREATE TABLE pnl_snapshots (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  bot_id          TEXT NOT NULL,
-  timestamp       TEXT NOT NULL,
-  portfolio_value REAL NOT NULL,
-  cash            REAL NOT NULL,
-  positions       TEXT NOT NULL DEFAULT '{}'  -- JSON: raw Alpaca positions array
-)
-```
-
-Index: `(bot_id, timestamp DESC)`
-
-### `position_theses`
-The LLM's stated reasoning for each currently open position. Injected back into context on subsequent runs so the LLM can evaluate whether its original conviction still holds.
-
-```sql
-CREATE TABLE position_theses (
-  bot_id       TEXT NOT NULL,
-  symbol       TEXT NOT NULL,
-  thesis       TEXT NOT NULL,
-  entered_at   TEXT NOT NULL,
-  entry_amount REAL,
-  PRIMARY KEY (bot_id, symbol)
-)
-```
-
-### `seen_content`
-Prevents the Truth Social MCP from reprocessing posts already acted on.
-
-```sql
-CREATE TABLE seen_content (
-  bot_id     TEXT NOT NULL,
-  content_id TEXT NOT NULL,
-  timestamp  TEXT NOT NULL,
-  PRIMARY KEY (bot_id, content_id)
-)
-```
-
----
-
-## Webapp
-
-Read-only SQLite access via `lib/db.server.ts` (TanStack Start server functions). Frontend never writes to the DB.
-
-### Routes
-
-| Route | Purpose |
+| Var | Purpose |
 |---|---|
-| `/` | Dashboard: bot race chart (portfolio return %), bot summary cards |
-| `/bots/$botId` | Bot detail: stats, P&L chart, system prompt, decision log |
-
-### Bot Detail Page — Current State
-
-- **4 stat cards**: Portfolio Value, Cash, Total Return %, Total Decisions
-- **P&L chart**: portfolio value over time (Recharts LineChart)
-- **System prompt panel**: raw system prompt + model + cron
-- **Decision log**: expandable rows showing action badge, symbol, amount, timestamp, reasoning, raw tool calls
-
-### What the Webapp Does NOT Show
-
-- Current open positions (even though `pnl_snapshots.positions` stores this as JSON)
-- Position theses (the `position_theses` table is never queried by the webapp)
-- Which specific Truth Social post triggered a given trade (buried in raw tool call JSON)
-- Historical evolution of conviction for a position across multiple runs
+| `OPENROUTER_API_KEY` | LLM API key (openrouter.ai/keys) |
+| `TRADING_ENV` | `dev` / `staging` / `prod` — selects which DB file to open |
+| `ALPACA_TRUMP_BOT_KEY` | Alpaca key for trump-bot |
+| `ALPACA_TRUMP_BOT_SECRET` | Alpaca secret for trump-bot |
+| `ALPACA_TRUMP_BOT_ENDPOINT` | Alpaca endpoint for trump-bot (`https://paper-api.alpaca.markets`) |
+| `ALPACA_DATACENTER_BOT_KEY` | Alpaca key for datacenter-bot |
+| `ALPACA_DATACENTER_BOT_SECRET` | Alpaca secret for datacenter-bot |
+| `ALPACA_DATACENTER_BOT_ENDPOINT` | Alpaca endpoint for datacenter-bot |
+| `TRADING_BOTS_DATA_DIR` | Override `data/` directory (defaults to repo root `data/`) |
 
 ---
 
-## Known Issues & Gaps
+## Known Issues
 
-### 1. Position Observability — `position_theses` is Invisible to Humans
+### 1. position_reasons not shown in webapp
+Biggest observability gap. Fix: add `getPositionReasons()` to `db.server.ts`, render "Current Positions" panel on bot detail page.
 
-**Problem:** The `position_theses` table is the most important piece of signal in the system — it's the LLM's stated reason for holding each position. It's correctly written to on buy and read back on subsequent runs, but the webapp never queries it. A human operator has no way to see current positions alongside their theses without querying SQLite directly.
+### 2. Signal attribution buried
+Triggering posts are inside raw `tool_calls` JSON in the decision log. Fix: parse `get_trump_posts` results from `tool_calls` and render as a highlighted "Signal" callout.
 
-**Impact:** Cannot answer "why does this bot hold XLE right now?" from the webapp.
+### 3. Partial sell leaves stale entry_amount
+On partial sell, `entry_amount` in `position_reasons` should be decremented. Currently only updated if the existing amount is known at sell time.
 
-**Fix:** Add `getPositionTheses()` to `db.server.ts`, parse `pnl_snapshots.positions` for live market values, render a "Current Positions" panel on the bot detail page showing symbol, thesis, entry date, entry amount, current market value, and unrealized P&L.
-
----
-
-### 2. Thesis History is Destroyed on Update
-
-**Problem:** `upsertPositionThesis` uses `ON CONFLICT DO UPDATE SET` — it overwrites the previous thesis entirely. If the LLM adds to a position and updates its reasoning, the original entry thesis is gone. There is no record of how conviction evolved.
-
-**Impact:** Cannot audit whether the LLM's reasoning drifted, improved, or contradicted itself over the life of a position.
-
-**Fix:** Add a `position_thesis_history` table that appends a row on every thesis write, with an `event_type` column (`entered` | `reaffirmed` | `scaled_in` | `scaled_out` | `exited`). The current `position_theses` table remains the live/canonical record; history is append-only.
-
-```sql
-CREATE TABLE position_thesis_history (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  bot_id      TEXT NOT NULL,
-  symbol      TEXT NOT NULL,
-  thesis      TEXT NOT NULL,
-  recorded_at TEXT NOT NULL,
-  event_type  TEXT NOT NULL
-)
-```
+### 4. trump_posts lives in trading.db not env DBs
+The scraper and trump-posts MCP always use `data/trading.db` directly, independent of `TRADING_ENV`. This is intentional (trump posts are global data, not per-environment trading records) but cosmetically inconsistent.
 
 ---
 
-### 3. Signal Attribution is Buried
+## Proposed Next Phases
 
-**Problem:** The triggering Truth Social post(s) are captured in `decisions.tool_calls` as part of the `get_truth_social_posts` tool result, but the webapp renders this as raw text under a collapsed "Tool calls (N)" accordion. There's no way to quickly see "this buy was triggered by this specific post."
+### Phase 1 — Mastra.ai Migration
+Replace hand-rolled `bot-runner.ts` + `mcp-client.ts` agentic loop with Mastra.ai. Use their native MCP client and `TokenLimiterProcessor` for context overflow protection.
 
-**Impact:** Decision log is hard to audit. You have to expand every row and read raw JSON to understand what caused an action.
+### Phase 2 — Webapp Promotion Pipeline
+- Kanban at `/`: thesis cards with mode badge, return %, vs SPY, drawdown
+- Backtest detail at `/backtest/$runId`: P&L chart vs SPY, decision log with sim date
+- Bot detail improvements: current positions panel, signal attribution
 
-**Fix:** Parse `tool_calls` in the webapp to extract `get_truth_social_posts` results and display the triggering post(s) as a highlighted "Signal" block at the top of each decision detail — above the reasoning text. Badge it clearly so the signal-to-action chain is scannable without expanding anything.
+### Phase 3 — Observability Fixes
+- Surface `position_reasons` in webapp (issue 1)
+- Signal attribution in decision log (issue 2)
+- Fix partial sell `entry_amount` (issue 3)
 
----
-
-### 4. Partial Sell Leaves Stale `entry_amount`
-
-**Problem:** In `bot-runner.ts`, `deletePositionThesis` only fires when `isSellAll === true`. When `sell_stock` is called with a `dollar_amount` (partial exit), the thesis record's `entry_amount` is never updated. After scaling out 50% of a position, the thesis still shows the original full entry amount.
-
-**Impact:** The LLM is fed stale context about position sizing on subsequent runs. `entry_amount` shown in any future observability UI will also be wrong.
-
-**Fix:** On partial sell, call `upsertPositionThesis` with the updated `entry_amount` (original minus sold amount) rather than leaving it unchanged. On full sell, the existing `deletePositionThesis` call is correct.
-
----
-
-## Proposed Changes
-
-### Phase 1 — Surface existing data (no schema changes)
-
-**Goal:** Make `position_theses` and current positions visible in the webapp.
-
-**Changes:**
-- `webapp/src/lib/db.server.ts` — add `getPositionTheses(botId)` query and `PositionThesis` interface
-- `webapp/src/routes/bots.$botId.tsx` — add "Current Positions" panel:
-  - Join theses with latest `pnl_snapshots.positions` JSON on symbol
-  - Show: Symbol | Thesis | Entered | Entry $ | Market Value | Unrealized P&L
-  - Thesis renders inline (not collapsed)
-- `webapp/src/routes/bots.$botId.tsx` — improve decision log signal attribution:
-  - Parse `tool_calls` for `get_truth_social_posts` entries
-  - Render matching post content as a "Signal" callout block per decision
-
-**Scope:** webapp only, read-only, zero runner changes, zero schema changes.
-
----
-
-### Phase 2 — Correctness fix (runner only)
-
-**Goal:** Fix the partial sell thesis staleness bug.
-
-**Changes:**
-- `runner/src/bot-runner.ts` — on `sell_stock` with `dollar_amount` set, compute and upsert updated `entry_amount` into `position_theses`
-
-**Scope:** runner only, no webapp or schema changes.
-
----
-
-### Phase 3 — Thesis history (schema + runner + webapp)
-
-**Goal:** Append-only history of how conviction evolves per position.
-
-**Changes:**
-- `runner/src/db.ts` — add `position_thesis_history` table to migration; add `appendThesisHistory()` helper
-- `runner/src/bot-runner.ts` — call `appendThesisHistory()` on every thesis write with appropriate `event_type`
-- `webapp/src/lib/db.server.ts` — add `getThesisHistory(botId, symbol)` query
-- `webapp/src/routes/bots.$botId.tsx` — add "Conviction Timeline" accordion within the Current Positions panel, showing the chronological thesis history per symbol
-
-**Scope:** all three layers, additive schema change (new table, no existing table modifications).
-
----
-
-## Environment & Configuration
-
-| Env Var | Purpose |
-|---|---|
-| `GROQ_API_KEY` | Groq LLM API key (shared across all bots) |
-| `ALPACA_TRUMP_BOT_KEY` | Alpaca API key for trump-bot |
-| `ALPACA_TRUMP_BOT_SECRET` | Alpaca API secret for trump-bot |
-| `ALPACA_TRUMP_BOT_ENDPOINT` | Alpaca endpoint URL for trump-bot (paper: `https://paper-api.alpaca.markets`) |
-| `TRADING_BOTS_DATA_DIR` | Override SQLite directory (defaults to `data/`) |
-
----
-
-## Running Locally
-
-```bash
-# Start runner (schedules all enabled bots)
-bun run runner/src/index.ts
-
-# Force a bot run immediately (bypasses cron)
-bun run runner/src/index.ts --run-now=trump-bot
-
-# Initialization run (30-day lookback, forces a trade)
-bun run runner/src/index.ts --init=trump-bot
-
-# Start webapp on port 3000
-bun run webapp
-
-# Start both concurrently
-bun run dev
-```
+### Phase 4 — Options Trading
+Prerequisite: equity strategy beats SPY consistently over 3+ months in paper trading.
+When ready: add `buy_option(symbol, expiry, strike, side, contracts, reason)` to the trade MCP. Start with directional calls/puts only (no spreads), 30–45 DTE, on ETFs already in the universe.

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { createServerFn } from "@tanstack/react-start"
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts"
 import { getDecisions, getPnlHistory } from "../lib/db.server"
 import { readFileSync } from "fs"
 import { join } from "path"
@@ -30,9 +30,9 @@ function BotDetail() {
   const { botId } = Route.useParams()
 
   const chartData = pnlHistory.map((p) => ({
-    timestamp: p.timestamp,
-    value: p.portfolio_value,
+    timestamp: p.sim_date ?? p.timestamp,
     returnPct: ((p.portfolio_value - 100_000) / 100_000) * 100,
+    spyPct: p.spy_value != null ? ((p.spy_value - 100_000) / 100_000) * 100 : undefined,
   }))
 
   const latestPnl = pnlHistory[pnlHistory.length - 1]
@@ -83,7 +83,8 @@ function BotDetail() {
 
         {/* P&L Chart */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
-          <h2 className="text-base font-semibold text-white mb-4">Portfolio Value Over Time</h2>
+          <h2 className="text-base font-semibold text-white mb-1">Return vs SPY</h2>
+          <p className="text-xs text-gray-500 mb-4">% return relative to $100,000 starting capital</p>
           {chartData.length === 0 ? (
             <div className="flex items-center justify-center h-40 text-gray-500">No data yet</div>
           ) : (
@@ -91,13 +92,13 @@ function BotDetail() {
               <LineChart data={chartData}>
                 <XAxis
                   dataKey="timestamp"
-                  tickFormatter={(v) => new Date(v).toLocaleDateString()}
+                  tickFormatter={(v) => v.slice(0, 10)}
                   tick={{ fill: "#6b7280", fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                  tickFormatter={(v) => `${v.toFixed(1)}%`}
                   tick={{ fill: "#6b7280", fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
@@ -105,15 +106,28 @@ function BotDetail() {
                 />
                 <Tooltip
                   contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 8 }}
-                  labelFormatter={(v) => new Date(v).toLocaleString()}
-                  formatter={(v: number) => [`$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`]}
+                  labelFormatter={(v) => String(v).slice(0, 10)}
+                  formatter={(v: number) => [`${v.toFixed(2)}%`]}
                 />
+                <Legend />
                 <Line
                   type="monotone"
-                  dataKey="value"
+                  dataKey="returnPct"
+                  name={config?.name ?? botId}
                   stroke="#6366f1"
                   strokeWidth={2}
                   dot={false}
+                  connectNulls
+                />
+                <Line
+                  type="monotone"
+                  dataKey="spyPct"
+                  name="SPY (benchmark)"
+                  stroke="#6b7280"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  dot={false}
+                  connectNulls
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -147,6 +161,9 @@ function BotDetail() {
                 args: unknown
                 result: string
               }>
+              const displayDate = d.sim_date
+                ? `${d.sim_date} (sim)`
+                : new Date(d.timestamp).toLocaleString()
               return (
                 <details key={d.id} className="border border-gray-800 rounded-lg overflow-hidden group">
                   <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-800/50 transition-colors list-none">
@@ -159,9 +176,7 @@ function BotDetail() {
                         ${d.amount.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                       </span>
                     )}
-                    <span className="ml-auto text-xs text-gray-500">
-                      {new Date(d.timestamp).toLocaleString()}
-                    </span>
+                    <span className="ml-auto text-xs text-gray-500">{displayDate}</span>
                     <span className="text-xs text-gray-600 group-open:rotate-180 transition-transform">▼</span>
                   </summary>
                   <div className="px-4 pb-4 border-t border-gray-800 pt-3 space-y-3">
@@ -178,10 +193,15 @@ function BotDetail() {
                         </p>
                         <div className="space-y-2">
                           {toolCalls.map((tc, i) => (
-                            <div key={i} className="bg-gray-950 rounded-lg p-3">
-                              <p className="text-xs font-mono text-indigo-400 mb-1">{tc.tool}</p>
-                              <p className="text-xs text-gray-500 line-clamp-3">{tc.result}</p>
-                            </div>
+                            <details key={i} className="bg-gray-950 rounded-lg overflow-hidden group/tc">
+                              <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer list-none hover:bg-gray-900/50 transition-colors">
+                                <span className="text-xs font-mono text-indigo-400">{tc.tool}</span>
+                                <span className="ml-auto text-xs text-gray-600 group-open/tc:rotate-180 transition-transform">▼</span>
+                              </summary>
+                              <div className="px-3 pb-3 border-t border-gray-800/50 pt-2">
+                                <p className="text-xs text-gray-400 whitespace-pre-wrap font-mono leading-relaxed">{tc.result}</p>
+                              </div>
+                            </details>
                           ))}
                         </div>
                       </div>

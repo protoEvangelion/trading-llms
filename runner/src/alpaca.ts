@@ -118,3 +118,58 @@ export async function getOrders(
 ): Promise<unknown> {
   return alpacaFetch(config, `/orders?status=${status}&limit=${limit}`)
 }
+
+// ─── Data API (historical + real-time market data) ────────────────────────────
+// Separate base URL from the trading API — same credentials, different host.
+
+const ALPACA_DATA_BASE = "https://data.alpaca.markets"
+
+async function alpacaDataFetch(
+  config: Pick<AlpacaConfig, "key" | "secret">,
+  path: string,
+  params: Record<string, string> = {},
+): Promise<unknown> {
+  const url = new URL(`${ALPACA_DATA_BASE}${path}`)
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
+  const res = await fetch(url.toString(), {
+    headers: {
+      "APCA-API-KEY-ID": config.key,
+      "APCA-API-SECRET-KEY": config.secret,
+      Accept: "application/json",
+    },
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(`Alpaca Data API error ${res.status}: ${text.slice(0, 200)}`)
+  return JSON.parse(text)
+}
+
+export interface AlpacaBar {
+  t: string  // timestamp ISO
+  o: number  // open
+  h: number  // high
+  l: number  // low
+  c: number  // close
+  v: number  // volume
+}
+
+/**
+ * Fetch daily bars for one or more symbols.
+ * Returns bars sorted descending (most recent first) up to `limit` bars.
+ */
+export async function getRecentBars(
+  config: Pick<AlpacaConfig, "key" | "secret">,
+  symbols: string[],
+  opts: { start: string; end: string; limit: number; sort?: "asc" | "desc" },
+): Promise<Record<string, AlpacaBar[]>> {
+  const data = await alpacaDataFetch(config, "/v2/stocks/bars", {
+    symbols: symbols.join(","),
+    timeframe: "1Day",
+    start: opts.start,
+    end: opts.end,
+    limit: String(opts.limit),
+    sort: opts.sort ?? "desc",
+    feed: "sip",
+    adjustment: "split",
+  }) as { bars: Record<string, AlpacaBar[]> }
+  return data.bars ?? {}
+}

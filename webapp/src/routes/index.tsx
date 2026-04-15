@@ -37,6 +37,9 @@ const getChartData = createServerFn({ method: "GET" }).handler(() => {
       const point = data.find((p) => p.timestamp === ts)
       if (point) {
         row[id] = ((point.portfolio_value - 100_000) / 100_000) * 100
+        if (point.spy_value != null) {
+          row["SPY"] = ((point.spy_value - 100_000) / 100_000) * 100
+        }
       }
     }
     return row
@@ -177,6 +180,16 @@ function Dashboard() {
                     connectNulls
                   />
                 ))}
+                <Line
+                  type="monotone"
+                  dataKey="SPY"
+                  name="SPY (benchmark)"
+                  stroke="#6b7280"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  dot={false}
+                  connectNulls
+                />
               </LineChart>
             </ResponsiveContainer>
           )}

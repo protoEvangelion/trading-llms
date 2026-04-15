@@ -19,7 +19,8 @@ runner/src/         Bot execution engine (TypeScript)
   mcps/
     truth-social.ts   Playwright scraper for Trump's Truth Social
     web-search.ts     Alpaca News API + DuckDuckGo
-    alpaca-trade.ts   Portfolio tools exposed to the LLM
+    trade.ts          Portfolio tools exposed to the LLM (live)
+    backtest-trade.ts Simulated portfolio tools for backtesting
 
 webapp/src/         React observability dashboard (TanStack Start)
   routes/
@@ -36,11 +37,13 @@ design-doc.md       Architecture + known issues + proposed changes
 ## Commands
 
 ```bash
-bun run dev                            # runner + webapp concurrently
-bun run runner/src/index.ts            # runner only (schedules all enabled bots)
-bun run runner/src/index.ts --run-now=trump-bot   # force immediate run, then exit
-bun run runner/src/index.ts --init=trump-bot      # 30-day lookback init run
-bun --bun run --cwd webapp dev         # webapp only (port 3000)
+bun run dev                                           # runner + webapp concurrently
+bun run runner/src/index.ts                           # runner only (schedules all enabled bots)
+bun run runner/src/index.ts --run-now=trump-bot       # force immediate run, then exit
+bun run runner/src/index.ts --run-now=datacenter-bot  # force immediate run, then exit
+bun run runner/src/index.ts --init=trump-bot          # 30-day lookback init run
+bun run runner/src/index.ts --init=datacenter-bot     # init datacenter bot
+bun --bun run --cwd webapp dev                        # webapp only (port 3000)
 ```
 
 No build step for the runner — Bun runs TypeScript directly.
@@ -57,13 +60,32 @@ Single SQLite file at `data/trading.db`. Schema is managed inline in `runner/src
 
 All DB writes go through `runner/src/db.ts` helpers. The webapp uses a **read-only** connection in `webapp/src/lib/db.server.ts` — never write from there.
 
+## Bot Registry
+
+All bots are defined in `runner/src/bots.ts` and exported in the `bots` array. The scheduler picks up every entry with `enabled: true`.
+
+**`trump-bot` — Trump Signal Bot**
+- Thesis: Trump's Truth Social posts signal policy shifts that move market sectors before mainstream news catches up
+- Schedule: `0 */4 * * 1-5` (every 4 hours, weekdays)
+- MCPs: `truth-social` + `web-search` + `trade`
+- Env vars: `ALPACA_TRUMP_BOT_KEY`, `ALPACA_TRUMP_BOT_SECRET`, `ALPACA_TRUMP_BOT_ENDPOINT`
+
+**`datacenter-bot` — Data Center Infrastructure Bot**
+- Thesis: Data storage and compute demand will compound for a decade (AI, cloud migration, IoT, regulatory mandates). Physical infrastructure — colocation REITs, power/cooling, storage hardware — is structurally undersupplied.
+- Schedule: `0 10 * * 1-5` (daily 10am ET, weekdays)
+- Strategy: Long-biased, buy-and-hold. Sells only if the fundamental thesis breaks.
+- MCPs: `web-search` + `trade` (no Truth Social — not politically driven)
+- Env vars: `ALPACA_DATACENTER_BOT_KEY`, `ALPACA_DATACENTER_BOT_SECRET`, `ALPACA_DATACENTER_BOT_ENDPOINT`
+- Target universe: EQIX, DLR, IRM, COR (REITs), VRT, ETN (power/cooling), AMZN, MSFT, GOOGL (hyperscalers), WDC, STX, NTAP, PSTG (storage), ANET, CSCO (networking), NVDA, AMD, SMCI (semis)
+
 ## Adding a New Bot
 
 1. Define the bot in `runner/src/bots.ts` as a `ScheduledBotConfig`
 2. Give it a unique `id`, its own Alpaca paper trading credentials (add env var names), and a `system_prompt` that encodes the thesis
 3. Add the corresponding env vars to `.env`
-4. Set `enabled: true` — the scheduler picks up everything in the exported `bots` array
-5. Run `--init=<botId>` first to seed an initial position from a 30-day lookback
+4. If the bot searches for new domains, add keyword→ticker mappings to `KEYWORD_TICKER_MAP` in `runner/src/mcps/web-search.ts`
+5. Set `enabled: true` — the scheduler picks up everything in the exported `bots` array
+6. Run `--init=<botId>` first to seed an initial position from a 30-day lookback
 
 ## MCP Servers
 
@@ -71,9 +93,11 @@ Each MCP runs as a Bun child process over stdio. `bot-runner.ts` boots them at t
 
 Do not share state between MCP processes. Each run boots fresh.
 
+**Note:** `web-search.ts` reads `ALPACA_TRUMP_BOT_KEY` / `ALPACA_TRUMP_BOT_SECRET` directly for the Alpaca News API (read-only, not trading). All bots share these credentials for news fetching.
+
 ## Key Constraints (enforced in code, not just prompts)
 
-- Max 20% of portfolio per position — hard-checked in `alpaca-trade.ts` `buy_stock` before order submission
+- No position size limit — bots can allocate freely (20% hard cap was removed)
 - Positions are fractional (notional dollar amount, not share count) — Alpaca handles rounding
 - `sell_stock` with no `dollar_amount` → `closePosition()` (full exit) → deletes thesis
 - `sell_stock` with `dollar_amount` → partial exit → thesis should be updated (currently a bug, see design-doc.md)

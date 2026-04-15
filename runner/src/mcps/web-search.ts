@@ -14,6 +14,10 @@ const server = new McpServer({
   version: "1.0.0",
 })
 
+// In backtest mode, cap all news queries to this date so we don't see
+// news that wouldn't have existed at simulation time.
+const SIM_DATE = process.env.SIM_DATE ?? null
+
 // ─── Alpaca News API ─────────────────────────────────────────────────────────
 
 const ALPACA_DATA_BASE = "https://data.alpaca.markets"
@@ -62,6 +66,21 @@ const KEYWORD_TICKER_MAP: Record<string, string[]> = {
   prison: ["GEO", "CXW"],
   steel: ["X", "NUE", "STLD", "CLF"],
   infrastructure: ["XLI", "CAT", "DE", "X", "NUE"],
+  "data center": ["EQIX", "DLR", "IRM", "VRT", "SMCI", "NVDA"],
+  datacenter: ["EQIX", "DLR", "IRM", "VRT", "SMCI", "NVDA"],
+  colocation: ["EQIX", "DLR", "IRM", "COR"],
+  cloud: ["AMZN", "MSFT", "GOOGL", "EQIX", "DLR", "CLOU"],
+  "cloud computing": ["AMZN", "MSFT", "GOOGL", "CLOU", "WCLD"],
+  storage: ["WDC", "STX", "NTAP", "PSTG", "IBM"],
+  "data storage": ["WDC", "STX", "NTAP", "PSTG", "EQIX", "DLR"],
+  hyperscaler: ["AMZN", "MSFT", "GOOGL", "META", "EQIX", "DLR"],
+  "artificial intelligence": ["NVDA", "AMD", "SMCI", "VRT", "EQIX"],
+  "ai infrastructure": ["NVDA", "AMD", "SMCI", "VRT", "EQIX", "DLR"],
+  capex: ["AMZN", "MSFT", "GOOGL", "META", "EQIX", "DLR", "VRT"],
+  "power consumption": ["VRT", "ETN", "EQIX", "DLR", "NEE", "AEP"],
+  cooling: ["VRT", "ETN", "HUBB", "EQIX"],
+  semiconductor: ["NVDA", "AMD", "INTC", "AVGO", "ANET"],
+  networking: ["CSCO", "ANET", "KEYS", "JNPR"],
 }
 
 function extractTickers(query: string): string[] {
@@ -101,11 +120,15 @@ async function fetchAlpacaNews(query: string, limit = 20, lookbackDays = 7): Pro
   if (!key || !secret) throw new Error("Missing Alpaca credentials (ALPACA_TRUMP_BOT_KEY / ALPACA_TRUMP_BOT_SECRET)")
 
   const tickers = extractTickers(query)
-  const start = new Date(Date.now() - lookbackDays * 86400 * 1000).toISOString()
+
+  // In backtest mode, anchor news window to SIM_DATE to avoid lookahead bias
+  const anchorDate = SIM_DATE ? new Date(SIM_DATE) : new Date()
+  const start = new Date(anchorDate.getTime() - lookbackDays * 86400 * 1000).toISOString()
 
   const url = new URL(`${ALPACA_DATA_BASE}/v1beta1/news`)
   url.searchParams.set("symbols", tickers.join(","))
   url.searchParams.set("start", start)
+  url.searchParams.set("end", anchorDate.toISOString())
   url.searchParams.set("limit", String(Math.min(limit, 50)))
   url.searchParams.set("sort", "desc")
   url.searchParams.set("include_content", "false")
@@ -211,14 +234,17 @@ server.tool(
   },
   async ({ query, type, lookback_days }) => {
     try {
-      const results =
-        type === "financial_news"
-          ? await fetchAlpacaNews(query, 20, lookback_days)
-          : await searchDuckDuckGo(query)
-
-      return {
-        content: [{ type: "text", text: `Search results for "${query}":\n\n${results}` }],
+      let results: string
+      if (type === "financial_news") {
+        results = await fetchAlpacaNews(query, 20, lookback_days)
+      } else if (SIM_DATE) {
+        // DuckDuckGo has no historical mode — skip it in backtests
+        results = `[Backtest mode] General web search is unavailable during backtests (no historical index). Use financial_news for market data.`
+      } else {
+        results = await searchDuckDuckGo(query)
       }
+
+      return { content: [{ type: "text", text: `Search results for "${query}":\n\n${results}` }] }
     } catch (err) {
       return {
         content: [
