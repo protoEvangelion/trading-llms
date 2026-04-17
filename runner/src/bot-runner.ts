@@ -153,8 +153,13 @@ export async function runBot(bot: BotConfig, backtest?: BacktestContext): Promis
     ? `${backtest.simDateTime} ET (SIMULATION)`
     : new Date().toLocaleString("en-US", { timeZone: "America/New_York" }) + " ET"
 
+  // Append the live tool list to the system prompt so the model knows exactly
+  // what it can call — prevents hallucinating tool names from training data.
+  const toolNames = mcpClients.toolDefinitions.map((t) => `  - ${t.function.name}: ${t.function.description}`).join("\n")
+  const systemPromptWithTools = `${bot.system_prompt}\n\nAVAILABLE TOOLS (call ONLY these exact names — do not invent others):\n${toolNames}`
+
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: bot.system_prompt },
+    { role: "system", content: systemPromptWithTools },
     {
       role: "user",
       content:
@@ -218,7 +223,11 @@ export async function runBot(bot: BotConfig, backtest?: BacktestContext): Promis
         break
       }
 
-      messages.push({ role: "assistant", content: message.content, tool_calls: message.tool_calls })
+      // Push the exact object returned by callLLM — DO NOT spread/copy.
+      // llm.ts registers raw Google Content in a WeakMap keyed by this reference.
+      // Spreading creates a new object and breaks the WeakMap lookup, causing
+      // "missing thought_signature" errors on subsequent turns.
+      messages.push(message)
 
       let hitTerminal = false
       for (const toolCall of message.tool_calls) {

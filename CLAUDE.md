@@ -2,6 +2,10 @@ Always use **Bun**, never `node` or `ts-node`. All scripts run via `bun run <fil
 Always run `bun run typecheck` & `bun run test` after making ts(x) file changes. 
 Don't overcomplicate unit tests, or add every edge case under the sun. as you discover edge cases, add a test case.
 
+## Bot History
+
+All bots that have been built and backtested are tracked in [bot-log.md](./bot-log.md). Read it before creating a new bot to avoid duplicating a thesis that's already been tried. Update it after every `/create-bot` session.
+
 ## Repo Layout
 
 ```
@@ -47,21 +51,35 @@ design-doc.md       Architecture + known issues + proposed changes
 
 ```bash
 bun run dev                                           # runner + webapp concurrently
-bun run runner/src/index.ts                           # runner only (schedules all enabled bots)
-bun run runner/src/index.ts --run-now=trump-bot       # force immediate run, then exit
-bun run runner/src/index.ts --run-now=datacenter-bot  # force immediate run, then exit
-bun run runner/src/index.ts --init=trump-bot          # 30-day lookback init run
-bun run runner/src/index.ts --init=datacenter-bot     # init datacenter bot
 bun --bun run --cwd webapp dev                        # webapp only (port 3000)
-bun run runner/src/index.ts --backtest=trump-bot --start=YYYY-MM-DD --end=YYYY-MM-DD
-bun run runner/src/index.ts --backtest=datacenter-bot --start=YYYY-MM-DD --end=YYYY-MM-DD
+bun run runner/src/index.ts                           # runner only (schedules all enabled bots)
+```
+
+### Flag Reference
+
+- `--run-now=<botId>`: Triggers a single bot execution immediately and then exits. Useful for testing a bot's current logic or manually forcing a run. Operates in `staging` (paper trading) by default.
+- `--init=<botId>`: Performs a special "initialization" run. It uses a 30-day lookback for signals and appends instructions to the system prompt that **force the bot to take a position** (no `do_nothing` allowed). This establishes a starting thesis in the database. Operates in `staging` by default.
+- `--backtest=<botId> --start=YYYY-MM-DD --end=YYYY-MM-DD`: Runs a historical simulation between the specified dates. Uses `backtest-runner.ts` and forces the environment to `dev` (simulation DB).
+- `--env=[dev|staging|prod]`: Manually override the environment. `dev` uses `data/dev.db`, `staging` uses `data/staging.db`.
+
+### Examples
+
+```bash
+bun run runner/src/index.ts --run-now=trump-bot       # force immediate staging run
+bun run runner/src/index.ts --init=trump-bot          # initial 30-day thesis run
+bun run runner/src/index.ts --backtest=trump-bot --start=2025-01-01 --end=2025-02-01
 ```
 
 No build step for the runner — Bun runs TypeScript directly.
 
 ## Database
 
-Single SQLite file at `data/trading.db`. Schema is managed inline in `runner/src/db.ts` via `migrate()` — no migration framework. Migrations are `CREATE TABLE IF NOT EXISTS` so they're always safe to re-run.
+SQLite files are located in the `data/` directory (created on first run). The filename depends on `TRADING_ENV`:
+- `data/dev.db`: Used for backtests and local development.
+- `data/staging.db`: Used for paper trading (default).
+- `data/prod.db`: Reserved for live trading with real capital.
+
+Schema is managed inline in `runner/src/db.ts` via `migrate()` — no migration framework. Migrations are `CREATE TABLE IF NOT EXISTS` so they're always safe to re-run.
 
 **Tables:**
 - `decisions` — every bot run outcome: action, reasoning, symbol, amount, full tool call trace (JSON)

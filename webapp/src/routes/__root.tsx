@@ -8,7 +8,19 @@ import appCss from '../styles.css?url'
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark')?stored:'dark';var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(mode);root.setAttribute('data-theme',mode);root.style.colorScheme=mode;}catch(e){}})();`
 
+function NotFound() {
+  return (
+    <main className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center">
+      <div className="text-center">
+        <p className="text-6xl font-bold text-gray-700 mb-4">404</p>
+        <p className="text-gray-400">Page not found.</p>
+      </div>
+    </main>
+  )
+}
+
 export const Route = createRootRoute({
+  notFoundComponent: NotFound,
   head: () => ({
     meta: [
       {

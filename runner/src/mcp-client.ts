@@ -98,7 +98,8 @@ export async function dispatchToolCall(
     }
   }
 
-  throw new Error(`No MCP server found for tool: ${toolName}`)
+  const available = [...mcpClients.clients.values()].flatMap((c) => c.tools).join(", ")
+  return `Error: unknown tool "${toolName}". Available tools: ${available}. Call one of those instead.`
 }
 
 export async function shutdownMcpClients(mcpClients: McpClients) {
