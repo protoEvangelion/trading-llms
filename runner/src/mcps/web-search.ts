@@ -9,6 +9,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import { readSimDate } from "../harness-mode/mcps/sim-clock.js"
+import { getMarketOpenUtc } from "../simulation.js"
 
 const server = new McpServer({
   name: "web-search",
@@ -17,16 +18,21 @@ const server = new McpServer({
 
 // In backtest mode, cap all news queries to this date so we don't see
 // news that wouldn't have existed at simulation time.
+const SIM_DATETIME_UTC_ENV = process.env.SIM_DATETIME_UTC ?? null
 const SIM_DATE_ENV = process.env.SIM_DATE ?? null
 const SIM_CLOCK_STATE_FILE = process.env.SIM_CLOCK_STATE_FILE ?? null
 
-function getSimDate(): string | null {
-  return readSimDate(SIM_CLOCK_STATE_FILE) ?? SIM_DATE_ENV
+function getSimAnchor(): { date: string | null; datetime: string | null } {
+  const date = readSimDate(SIM_CLOCK_STATE_FILE) ?? SIM_DATE_ENV
+  const datetime = SIM_DATETIME_UTC_ENV ?? (date ? getMarketOpenUtc(date) : null)
+  return { date, datetime }
 }
 
 // ─── Alpaca News API ─────────────────────────────────────────────────────────
 
 const ALPACA_DATA_BASE = "https://data.alpaca.markets"
+const MAX_NEWS_RESULTS = 8
+const SUMMARY_CHAR_LIMIT = 120
 
 interface AlpacaNewsItem {
   id: number
@@ -120,23 +126,25 @@ function extractTickers(query: string): string[] {
   return [...tickers].slice(0, 10)
 }
 
-async function fetchAlpacaNews(query: string, limit = 20, lookbackDays = 7): Promise<string> {
+async function fetchAlpacaNews(query: string, limit = MAX_NEWS_RESULTS, lookbackDays = 7): Promise<string> {
   const key = process.env.ALPACA_TRUMP_BOT_KEY
   const secret = process.env.ALPACA_TRUMP_BOT_SECRET
   if (!key || !secret) throw new Error("Missing Alpaca credentials (ALPACA_TRUMP_BOT_KEY / ALPACA_TRUMP_BOT_SECRET)")
 
   const tickers = extractTickers(query)
 
-  // In backtest mode, anchor news window to SIM_DATE to avoid lookahead bias
-  const simDate = getSimDate()
-  const anchorDate = simDate ? new Date(simDate) : new Date()
+  // In backtest mode, anchor news window to the simulated timestamp.
+  // Date-only harness runs default to 09:30 ET instead of midnight so news
+  // is not stale by an extra overnight session.
+  const { datetime: simDatetimeUtc } = getSimAnchor()
+  const anchorDate = simDatetimeUtc ? new Date(simDatetimeUtc) : new Date()
   const start = new Date(anchorDate.getTime() - lookbackDays * 86400 * 1000).toISOString()
 
   const url = new URL(`${ALPACA_DATA_BASE}/v1beta1/news`)
   url.searchParams.set("symbols", tickers.join(","))
   url.searchParams.set("start", start)
   url.searchParams.set("end", anchorDate.toISOString())
-  url.searchParams.set("limit", String(Math.min(limit, 50)))
+  url.searchParams.set("limit", String(Math.min(limit, MAX_NEWS_RESULTS)))
   url.searchParams.set("sort", "desc")
   url.searchParams.set("include_content", "false")
 
@@ -161,10 +169,10 @@ async function fetchAlpacaNews(query: string, limit = 20, lookbackDays = 7): Pro
   }
 
   const lines = items.map((n) => {
-    const date = n.created_at.slice(0, 10)
+    const timestamp = n.created_at
     const syms = n.symbols.length > 0 ? ` [${n.symbols.join(", ")}]` : ""
-    const summary = n.summary ? `\n  ${n.summary.slice(0, 200)}` : ""
-    return `${date}${syms} — ${n.headline}${summary}\n  Source: ${n.source} | ${n.url}`
+    const summary = n.summary ? `\n  ${n.summary.slice(0, SUMMARY_CHAR_LIMIT)}` : ""
+    return `${timestamp}${syms} — ${n.headline}${summary}\n  Source: ${n.source}`
   })
 
   return `Found ${items.length} news articles for [${tickers.join(", ")}]:\n\n` + lines.join("\n\n")
@@ -242,9 +250,9 @@ server.tool(
   async ({ query, type, lookback_days }) => {
     try {
       let results: string
-      const simDate = getSimDate()
+      const { date: simDate } = getSimAnchor()
       if (type === "financial_news") {
-        results = await fetchAlpacaNews(query, 20, lookback_days)
+        results = await fetchAlpacaNews(query, MAX_NEWS_RESULTS, lookback_days)
       } else if (simDate) {
         // DuckDuckGo has no historical mode — skip it in backtests
         results = `[Backtest mode] General web search is unavailable during backtests (no historical index). Use financial_news for market data.`

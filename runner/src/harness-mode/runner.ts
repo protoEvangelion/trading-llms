@@ -3,6 +3,7 @@ import { join, resolve } from "path"
 import { bots } from "../bots.js"
 import type { ScheduledBotConfig } from "../bots.js"
 import { getDb } from "../db.js"
+import { buildReasoningStandardSection } from "../prompting.js"
 import {
   calculateMaxDrawdown,
   getTradingDays,
@@ -393,11 +394,14 @@ function buildBotMcpConfigs(params: {
 function buildContextDoc(bot: ScheduledBotConfig, config: HarnessRunConfig): string {
   const isBacktest = config.mode === "backtest"
   const toolLines = buildToolDocs(bot, config)
+  const reasoningStandard = buildReasoningStandardSection()
 
   return `# ${bot.name}
 
 ## Investment Thesis
 ${bot.system_prompt}
+
+${reasoningStandard}
 
 ## Harness Protocol
 You are running inside a long-lived ${config.harness} harness.
@@ -409,16 +413,16 @@ ${isBacktest
   ? `Backtest loop:
 1. Call \`get_sim_state()\` at the start of each trading day.
 2. Review portfolio state with \`get_portfolio()\` and \`get_recent_orders()\`.
-3. Gather fresh signals with the thesis-relevant MCP tools.
+3. Gather fresh signals with the thesis-relevant MCP tools. Prefer a small number of targeted searches over many broad, repetitive ones.
 4. Make your decision with \`buy_stock()\`, \`sell_stock()\`, \`short_stock()\`, or \`do_nothing()\`.
-5. Call \`log_decision()\` with a concise markdown summary of what you did and why.
+5. Call \`log_decision()\` with a concise markdown summary of what you did and why. Keep it brief: 2-4 bullets or a short paragraph.
 6. Call \`advance_to_next_trading_day()\` exactly once when the day is finished.
 7. When \`advance_to_next_trading_day()\` returns \`{"done": true}\`, write a short final performance summary and exit.`
   : `Live loop:
 1. Call \`get_current_time()\` to check whether the market is open.
 2. Review portfolio state and recent orders.
-3. Gather new signals with the thesis-relevant MCP tools.
-4. Trade only when conditions warrant, and log each decision with \`log_decision()\`.
+3. Gather new signals with the thesis-relevant MCP tools. Prefer a small number of targeted searches over many broad, repetitive ones.
+4. Trade only when conditions warrant, and log each decision with \`log_decision()\` briefly.
 5. Continue operating until the operator stops the harness.`}
 
 ## Available Tools

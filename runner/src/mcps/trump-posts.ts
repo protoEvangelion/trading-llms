@@ -15,6 +15,7 @@ import { Database } from "bun:sqlite"
 import { join } from "path"
 import { mkdirSync } from "fs"
 import { readSimDate } from "../harness-mode/mcps/sim-clock.js"
+import { getMarketOpenUtc } from "../simulation.js"
 
 const server = new McpServer({
   name: "trump-posts",
@@ -34,7 +35,7 @@ const SIM_CLOCK_STATE_FILE = process.env.SIM_CLOCK_STATE_FILE ?? null
 
 function getSimDate(): { date: string | null; datetime: string | null } {
   const date = readSimDate(SIM_CLOCK_STATE_FILE) ?? SIM_DATE_ENV
-  const datetime = SIM_CLOCK_STATE_FILE ? null : SIM_DATETIME_UTC_ENV
+  const datetime = SIM_DATETIME_UTC_ENV ?? (date ? getMarketOpenUtc(date) : null)
   return { date, datetime }
 }
 

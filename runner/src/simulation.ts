@@ -287,6 +287,22 @@ export function getSimDateTimes(tradingDay: string, cronExpression: string): str
   return hours.map((h) => `${tradingDay}T${String(h).padStart(2, "0")}:${minuteStr}:00`)
 }
 
+/**
+ * Convert "YYYY-MM-DDTHH:MM:SS" expressed in US Eastern Time to a UTC ISO string.
+ * Simplified rule: months 4–10 = EDT (UTC-4), otherwise EST (UTC-5).
+ */
+export function etToUTC(simDateTime: string): string {
+  const month = parseInt(simDateTime.slice(5, 7), 10)
+  const offsetHours = month >= 4 && month <= 10 ? 4 : 5
+  const d = new Date(simDateTime + "Z")
+  d.setUTCHours(d.getUTCHours() + offsetHours)
+  return d.toISOString()
+}
+
+export function getMarketOpenUtc(simDate: string): string {
+  return etToUTC(`${simDate}T09:30:00`)
+}
+
 // ─── Max drawdown ─────────────────────────────────────────────────────────────
 
 /**

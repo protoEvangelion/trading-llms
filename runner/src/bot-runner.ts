@@ -10,6 +10,8 @@ import {
 } from "./db.js"
 import { getAlpacaConfig, getAccount, getPositions } from "./alpaca.js"
 import type { McpConfig } from "./mcp-client.js"
+import { buildSystemPrompt } from "./prompting.js"
+import { etToUTC } from "./simulation.js"
 
 export interface BotConfig {
   id: string
@@ -66,19 +68,6 @@ function formatPositionReasonsContext(botId: string): string {
     lines.join("\n\n") +
     `\n${"─".repeat(60)}`
   )
-}
-
-/**
- * Convert "YYYY-MM-DDTHH:MM:SS" expressed in US Eastern Time to a UTC ISO string.
- * Simplified rule: months 4–10 = EDT (UTC-4), otherwise EST (UTC-5).
- */
-function etToUTC(simDateTime: string): string {
-  const month = parseInt(simDateTime.slice(5, 7), 10)
-  const offsetHours = month >= 4 && month <= 10 ? 4 : 5
-  // Parse as UTC then shift — avoids any system-local-time ambiguity
-  const d = new Date(simDateTime + "Z")
-  d.setUTCHours(d.getUTCHours() + offsetHours)
-  return d.toISOString()
 }
 
 /**
@@ -156,7 +145,7 @@ export async function runBot(bot: BotConfig, backtest?: BacktestContext): Promis
   // Append the live tool list to the system prompt so the model knows exactly
   // what it can call — prevents hallucinating tool names from training data.
   const toolNames = mcpClients.toolDefinitions.map((t) => `  - ${t.function.name}: ${t.function.description}`).join("\n")
-  const systemPromptWithTools = `${bot.system_prompt}\n\nAVAILABLE TOOLS (call ONLY these exact names — do not invent others):\n${toolNames}`
+  const systemPromptWithTools = buildSystemPrompt(bot.system_prompt, toolNames)
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPromptWithTools },

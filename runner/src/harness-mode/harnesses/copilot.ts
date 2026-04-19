@@ -5,7 +5,7 @@
  * Launches an interactive autopilot session with the run-specific config dir.
  * Resume uses --continue unless a concrete session ID is already known.
  * MCP cfg:   {workingDir}/mcp-config.json  (Copilot reads this when --config-dir is set)
- * Context:   {workingDir}/COPILOT.md plus AGENTS.md for Copilot's native instructions loader
+ * Context:   {workingDir}/AGENTS.md for Copilot's native instructions loader
  *
  * Copilot CLI MCP format requires type:"local" and tools:["*"] in addition to
  * the standard command/args/env fields.
@@ -40,7 +40,6 @@ export class CopilotAdapter implements HarnessAdapter {
   async launch(config: HarnessLaunchConfig): Promise<HarnessSession> {
     mkdirSync(config.workingDir, { recursive: true })
 
-    writeFileSync(join(config.workingDir, "COPILOT.md"), config.contextDoc, "utf8")
     writeFileSync(join(config.workingDir, "AGENTS.md"), config.contextDoc, "utf8")
 
     writeFileSync(

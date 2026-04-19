@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test"
 import {
   capEnd,
   calculateMaxDrawdown,
+  etToUTC,
   getCronHours,
   getCronMinute,
+  getMarketOpenUtc,
   getSimDateTimes,
 } from "./simulation.js"
 
@@ -77,5 +79,16 @@ describe("getSimDateTimes", () => {
     expect(result).toHaveLength(6)
     expect(result[0]).toBe("2026-04-10T00:00:00")
     expect(result[1]).toBe("2026-04-10T04:00:00")
+  })
+})
+
+describe("sim time conversion", () => {
+  test("converts ET datetime to UTC ISO", () => {
+    expect(etToUTC("2026-04-10T09:30:00")).toBe("2026-04-10T13:30:00.000Z")
+    expect(etToUTC("2026-12-10T09:30:00")).toBe("2026-12-10T14:30:00.000Z")
+  })
+
+  test("uses market open for date-only backtest anchors", () => {
+    expect(getMarketOpenUtc("2026-04-10")).toBe("2026-04-10T13:30:00.000Z")
   })
 })
