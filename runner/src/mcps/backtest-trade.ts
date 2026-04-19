@@ -18,6 +18,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import { readFileSync, writeFileSync } from "fs"
 import { getRecentBars } from "../alpaca.js"
+import { readSimDate } from "../harness-mode/mcps/sim-clock.js"
 
 const server = new McpServer({
   name: "backtest-trade",
@@ -25,12 +26,13 @@ const server = new McpServer({
 })
 
 const STATE_FILE = process.env.BACKTEST_STATE_FILE
-const SIM_DATE = process.env.SIM_DATE   // YYYY-MM-DD
+const SIM_DATE = process.env.SIM_DATE ?? null
+const SIM_CLOCK_STATE_FILE = process.env.SIM_CLOCK_STATE_FILE ?? null
 const ALPACA_KEY = process.env.ALPACA_KEY
 const ALPACA_SECRET = process.env.ALPACA_SECRET
 
 if (!STATE_FILE) throw new Error("BACKTEST_STATE_FILE env var is required")
-if (!SIM_DATE) throw new Error("SIM_DATE env var is required")
+if (!SIM_DATE && !SIM_CLOCK_STATE_FILE) throw new Error("SIM_DATE or SIM_CLOCK_STATE_FILE env var is required")
 if (!ALPACA_KEY || !ALPACA_SECRET) throw new Error("ALPACA_KEY / ALPACA_SECRET env vars are required")
 
 // ─── State file helpers ───────────────────────────────────────────────────────
@@ -64,6 +66,12 @@ function readState(): SimState {
 
 function writeState(state: SimState): void {
   writeFileSync(STATE_FILE!, JSON.stringify(state, null, 2), "utf8")
+}
+
+function getCurrentSimDate(): string {
+  const simDate = readSimDate(SIM_CLOCK_STATE_FILE) ?? SIM_DATE
+  if (!simDate) throw new Error("No current simulation date is available")
+  return simDate
 }
 
 // ─── Alpaca Data API (historical OHLCV) ───────────────────────────────────────
@@ -159,7 +167,8 @@ server.tool(
   {},
   async () => {
     try {
-      const end = new Date(SIM_DATE!)
+      const currentSimDate = getCurrentSimDate()
+      const end = new Date(currentSimDate)
       end.setDate(end.getDate() - 1)
       const start = new Date(end)
       start.setDate(start.getDate() - 12)

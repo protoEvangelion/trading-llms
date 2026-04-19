@@ -14,6 +14,7 @@ import { z } from "zod"
 import { Database } from "bun:sqlite"
 import { join } from "path"
 import { mkdirSync } from "fs"
+import { readSimDate } from "../harness-mode/mcps/sim-clock.js"
 
 const server = new McpServer({
   name: "trump-posts",
@@ -25,10 +26,17 @@ const dataDir = process.env.TRADING_BOTS_DATA_DIR ?? join(import.meta.dir, "../.
 mkdirSync(dataDir, { recursive: true })
 const DB_PATH = join(dataDir, "sources.db")
 
-// In backtest mode, SIM_DATETIME_UTC is the precise UTC cutoff for the sim tick.
-// SIM_DATE (date only) is the fallback when no time is available.
-const SIM_DATETIME_UTC = process.env.SIM_DATETIME_UTC ?? null
-const SIM_DATE = process.env.SIM_DATE ?? null
+// Agent-mode: SIM_DATETIME_UTC / SIM_DATE set at boot per tick (static)
+// Harness-mode: SIM_CLOCK_STATE_FILE set at boot; date read dynamically each call
+const SIM_DATETIME_UTC_ENV = process.env.SIM_DATETIME_UTC ?? null
+const SIM_DATE_ENV = process.env.SIM_DATE ?? null
+const SIM_CLOCK_STATE_FILE = process.env.SIM_CLOCK_STATE_FILE ?? null
+
+function getSimDate(): { date: string | null; datetime: string | null } {
+  const date = readSimDate(SIM_CLOCK_STATE_FILE) ?? SIM_DATE_ENV
+  const datetime = SIM_CLOCK_STATE_FILE ? null : SIM_DATETIME_UTC_ENV
+  return { date, datetime }
+}
 
 const RESPONSE_TOKEN_LIMIT = 4000
 
@@ -61,11 +69,13 @@ server.tool(
     try {
       db = new Database(DB_PATH, { readonly: true })
 
+      const { date: simDate, datetime: simDatetimeUtc } = getSimDate()
+
       // Anchor: precise UTC sim time > date-only fallback > now (live)
-      const anchorDate = SIM_DATETIME_UTC
-        ? new Date(SIM_DATETIME_UTC)
-        : SIM_DATE
-          ? new Date(SIM_DATE)
+      const anchorDate = simDatetimeUtc
+        ? new Date(simDatetimeUtc)
+        : simDate
+          ? new Date(simDate)
           : new Date()
       const fromDate = new Date(anchorDate)
       fromDate.setDate(fromDate.getDate() - clampedDays)
@@ -78,7 +88,7 @@ server.tool(
       ).all(fromDate.toISOString(), anchorDate.toISOString())
 
       if (posts.length === 0) {
-        const modeNote = SIM_DATE ? ` (simulation date: ${SIM_DATE})` : ""
+        const modeNote = simDate ? ` (simulation date: ${simDate})` : ""
         return {
           content: [
             {
@@ -93,10 +103,10 @@ server.tool(
       }
 
       // Format posts, truncating from oldest → newest until we fit within token budget
-      const modeNote = SIM_DATETIME_UTC
-        ? ` (as of ${SIM_DATETIME_UTC.slice(0, 16)} UTC)`
-        : SIM_DATE
-          ? ` (as of ${SIM_DATE})`
+      const modeNote = simDatetimeUtc
+        ? ` (as of ${simDatetimeUtc.slice(0, 16)} UTC)`
+        : simDate
+          ? ` (as of ${simDate})`
           : ""
       const header = `Found ${posts.length} Trump post${posts.length === 1 ? "" : "s"} from the last ${clampedDays} day${clampedDays === 1 ? "" : "s"}${modeNote}:\n\n`
       const headerTokens = roughTokenCount(header)

@@ -95,7 +95,7 @@ You define a thesis
 |---|---|
 | Runtime | Bun |
 | Language | TypeScript |
-| LLM provider | OpenRouter (`google/gemini-3-flash-preview` default; configurable per bot) |
+| LLM provider | OpenRouter (`google/gemini-2.0-flash` default; configurable per bot) |
 | LLM client | OpenAI SDK (OpenRouter is OpenAI-compatible) |
 | Broker | Alpaca Markets (paper + live) |
 | Database | SQLite via `bun:sqlite`, WAL mode |
@@ -381,7 +381,7 @@ interface ScheduledBotConfig extends BotConfig {
 - Thesis: Trump's Truth Social posts signal policy shifts before mainstream news catches up
 - Schedule: `15 9 * * 1-5` (9:15 AM ET, 15 min before market open, weekdays)
 - preRunScript: `bun run scripts/scrape-trump-posts.ts --update` (runs fresh before each tick)
-- Model: `google/gemini-3-flash-preview`
+- Model: `google/gemini-2.0-flash`
 - MCPs: `trump-posts` + `web-search` + `alpaca-trade`
 - Lookback: 7 days of posts (last week), default in MCP
 

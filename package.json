@@ -5,7 +5,7 @@
   "scripts": {
     "runner": "bun run runner/src/index.ts",
     "webapp": "bun --bun run --cwd webapp dev",
-    "dev": "bunx concurrently --names runner,webapp --prefix-colors blue,green \"bun run runner\" \"bun run webapp\"",
+    "dev": "bun run webapp",
     "run-now": "bun run runner/src/index.ts --run-now",
     "init": "bun run runner/src/index.ts --init",
     "typecheck": "tsgo --noEmit --project webapp/tsconfig.json && tsgo --noEmit --project runner/tsconfig.json",

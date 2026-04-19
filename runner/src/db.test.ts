@@ -8,6 +8,7 @@ import {
   getPositionReasons,
   hasSeenContent,
   logDecision,
+  logPnlSnapshot,
   markContentSeen,
   upsertPositionReason,
 } from "./db.js"
@@ -38,8 +39,20 @@ describe("schema", () => {
     expect(names).toContain("position_reasons")
     expect(names).toContain("seen_content")
     expect(names).toContain("backtest_runs")
+    expect(names).toContain("runs")
     // Legacy table should be gone
     expect(names).not.toContain("position_theses")
+  })
+
+  test("migrate adds harness run foreign keys to decision and pnl tables", () => {
+    const db = getDb()
+    const decisionColumns = db.query("PRAGMA table_info(decisions)").all() as Array<{ name: string }>
+    const pnlColumns = db.query("PRAGMA table_info(pnl_snapshots)").all() as Array<{ name: string }>
+    const runColumns = db.query("PRAGMA table_info(runs)").all() as Array<{ name: string }>
+
+    expect(decisionColumns.map((column) => column.name)).toContain("run_id")
+    expect(pnlColumns.map((column) => column.name)).toContain("run_id")
+    expect(runColumns.map((column) => column.name)).toContain("model")
   })
 })
 
@@ -94,5 +107,46 @@ describe("logDecision", () => {
     const db = getDb()
     const row = db.query("SELECT * FROM decisions WHERE bot_id = 'bot-1'").get() as { action: string }
     expect(row.action).toBe("do_nothing")
+  })
+
+  test("stores harness run_id when provided", () => {
+    logDecision({
+      botId: "bot-1",
+      reasoning: "harness note",
+      action: "buy_stock",
+      symbol: "AAPL",
+      amount: 5_000,
+      toolCalls: [],
+      runId: 42,
+      simDate: "2026-04-10",
+    })
+
+    const db = getDb()
+    const row = db.query("SELECT run_id, sim_date FROM decisions WHERE bot_id = 'bot-1'").get() as { run_id: number; sim_date: string }
+    expect(row.run_id).toBe(42)
+    expect(row.sim_date).toBe("2026-04-10")
+  })
+})
+
+describe("logPnlSnapshot", () => {
+  test("stores harness run_id when provided", () => {
+    logPnlSnapshot({
+      botId: "bot-1",
+      runId: 99,
+      simDate: "2026-04-10",
+      portfolioValue: 123_456,
+      cash: 12_345,
+      positions: { AAPL: { qty: 1, costBasis: 100 } },
+      spyValue: 101_000,
+    })
+
+    const db = getDb()
+    const row = db
+      .query("SELECT run_id, sim_date, portfolio_value FROM pnl_snapshots WHERE bot_id = 'bot-1'")
+      .get() as { run_id: number; sim_date: string; portfolio_value: number }
+
+    expect(row.run_id).toBe(99)
+    expect(row.sim_date).toBe("2026-04-10")
+    expect(row.portfolio_value).toBe(123_456)
   })
 })

@@ -105,7 +105,6 @@ function migrate(db: Database) {
     ON pnl_snapshots(backtest_run_id, sim_date)
     WHERE backtest_run_id IS NOT NULL
   `)
-
   // ─── Position reasons ─────────────────────────────────────────────────────────
   // The LLM's stated reason for each open (or historically open) position.
   // Injected back into context each run so the agent can re-evaluate conviction.
@@ -126,7 +125,7 @@ function migrate(db: Database) {
   // Drop legacy table (renamed to position_reasons)
   db.run(`DROP TABLE IF EXISTS position_theses`)
 
-  // ─── Backtest run metadata ────────────────────────────────────────────────────
+  // ─── Backtest run metadata (agent-mode) ──────────────────────────────────────
   // Lives in dev.db only, but defining it in all envs is harmless.
 
   db.run(`
@@ -144,6 +143,45 @@ function migrate(db: Database) {
       beats_spy     INTEGER
     )
   `)
+
+  // ─── Unified run table (harness-mode) ────────────────────────────────────────
+  // Covers backtest, paper, and live harness sessions across all envs.
+  // sim_start / sim_end are NULL for paper/live runs.
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS runs (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      bot_id             TEXT NOT NULL,
+      harness            TEXT NOT NULL DEFAULT 'legacy',
+      model              TEXT NOT NULL DEFAULT '',
+      mode               TEXT NOT NULL DEFAULT 'backtest',
+      started_at         TEXT NOT NULL,
+      completed_at       TEXT,
+      sim_start          TEXT,
+      sim_end            TEXT,
+      status             TEXT NOT NULL DEFAULT 'running',
+      total_return       REAL,
+      spy_return         REAL,
+      max_drawdown       REAL,
+      beats_spy          INTEGER,
+      harness_session_id TEXT
+    )
+  `)
+  try { db.run("ALTER TABLE runs ADD COLUMN model TEXT NOT NULL DEFAULT ''") } catch {}
+
+  // Additive FK columns on existing tables so harness-mode rows can reference runs
+  try { db.run("ALTER TABLE decisions ADD COLUMN run_id INTEGER REFERENCES runs(id)") } catch {}
+  try { db.run("ALTER TABLE pnl_snapshots ADD COLUMN run_id INTEGER REFERENCES runs(id)") } catch {}
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_decisions_run
+    ON decisions(run_id, sim_date)
+    WHERE run_id IS NOT NULL
+  `)
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_pnl_run
+    ON pnl_snapshots(run_id, sim_date)
+    WHERE run_id IS NOT NULL
+  `)
 }
 
 // ─── Decision helpers ─────────────────────────────────────────────────────────
@@ -158,13 +196,14 @@ export function logDecision(params: {
   fillPrice?: number
   toolCalls: unknown[]
   backtestRunId?: number
+  runId?: number
   simDate?: string
 }) {
   const db = getDb()
   db.run(
     `INSERT INTO decisions
-       (bot_id, mode, timestamp, reasoning, action, symbol, amount, fill_price, tool_calls, backtest_run_id, sim_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (bot_id, mode, timestamp, reasoning, action, symbol, amount, fill_price, tool_calls, backtest_run_id, run_id, sim_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       params.botId,
       params.mode ?? (params.backtestRunId != null ? "backtest" : "live"),
@@ -176,6 +215,7 @@ export function logDecision(params: {
       params.fillPrice ?? null,
       JSON.stringify(params.toolCalls),
       params.backtestRunId ?? null,
+      params.runId ?? null,
       params.simDate ?? null,
     ],
   )
@@ -191,13 +231,14 @@ export function logPnlSnapshot(params: {
   positions: unknown
   spyValue?: number
   backtestRunId?: number
+  runId?: number
   simDate?: string
 }) {
   const db = getDb()
   db.run(
     `INSERT INTO pnl_snapshots
-       (bot_id, mode, timestamp, portfolio_value, cash, positions, spy_value, backtest_run_id, sim_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (bot_id, mode, timestamp, portfolio_value, cash, positions, spy_value, backtest_run_id, run_id, sim_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       params.botId,
       params.mode ?? (params.backtestRunId != null ? "backtest" : "live"),
@@ -207,6 +248,7 @@ export function logPnlSnapshot(params: {
       JSON.stringify(params.positions),
       params.spyValue ?? null,
       params.backtestRunId ?? null,
+      params.runId ?? null,
       params.simDate ?? null,
     ],
   )
@@ -363,4 +405,3 @@ export function getLatestPnl(botId: string) {
     .query(`SELECT * FROM pnl_snapshots WHERE bot_id = ? ORDER BY timestamp DESC LIMIT 1`)
     .get(botId)
 }
-

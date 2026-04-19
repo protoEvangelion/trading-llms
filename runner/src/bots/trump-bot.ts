@@ -32,7 +32,7 @@ export const trumpBot: ScheduledBotConfig = {
   // Scrape fresh Trump posts before each run
   preRunScript: ["bun", "run", "scripts/scrape-trump-posts.ts", "--update"],
 
-  model: "google/gemini-3-flash-preview",
+  model: "google/gemini-2.0-flash",
 
   alpacaKeyEnv: "ALPACA_TRUMP_BOT_KEY",
   alpacaSecretEnv: "ALPACA_TRUMP_BOT_SECRET",

@@ -30,7 +30,7 @@ export const dataCenterBot: ScheduledBotConfig = {
   // 3:45 AM ET pre-open only, once daily — macro thesis doesn't need intraday frequency
   cron: "45 3 * * 1-5",
 
-  model: "google/gemini-3-flash-preview",
+  model: "google/gemini-2.0-flash",
 
   alpacaKeyEnv: "ALPACA_DATACENTER_BOT_KEY",
   alpacaSecretEnv: "ALPACA_DATACENTER_BOT_SECRET",

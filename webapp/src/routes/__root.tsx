@@ -10,8 +10,8 @@ const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getIte
 
 function NotFound() {
   return (
-    <main className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center">
-      <div className="text-center">
+    <main className="app-shell min-h-screen text-gray-100 flex items-center justify-center px-6">
+      <div className="glass-card rounded-3xl px-10 py-12 text-center">
         <p className="text-6xl font-bold text-gray-700 mb-4">404</p>
         <p className="text-gray-400">Page not found.</p>
       </div>
@@ -31,13 +31,23 @@ export const Route = createRootRoute({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'TanStack Start Starter',
+        title: 'Trading Bots',
       },
     ],
     links: [
       {
         rel: 'stylesheet',
         href: appCss,
+      },
+      {
+        rel: 'icon',
+        type: 'image/svg+xml',
+        href: '/favicon.svg?v=2',
+      },
+      {
+        rel: 'icon',
+        type: 'image/x-icon',
+        href: '/favicon.ico?v=2',
       },
     ],
   }),
@@ -51,7 +61,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
-      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)] bg-[#e7f3ec] dark:bg-[#0a1418]">
+      <body className="app-shell font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)] text-slate-100 bg-transparent">
         <Header />
         {children}
         <Footer />

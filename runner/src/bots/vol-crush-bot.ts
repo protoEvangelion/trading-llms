@@ -19,7 +19,7 @@ export const volCrushBot: ScheduledBotConfig = {
 
   cron: "30 9 * * 1-5",
 
-  model: "google/gemini-3-flash-preview",
+  model: "google/gemini-2.0-flash",
 
   alpacaKeyEnv: "ALPACA_TRUMP_BOT_KEY",
   alpacaSecretEnv: "ALPACA_TRUMP_BOT_SECRET",

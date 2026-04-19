@@ -77,6 +77,13 @@ bun run runner/src/index.ts --backtest=trump-bot --start=2025-04-14 --end=2025-0
 bun run runner/src/index.ts --env=staging --run-now=trump-bot
 ```
 
+## Harness Commands
+
+```bash
+# Run the Copilot harness with a Sonnet model over a backtest window
+bun run runner/src/harness.ts --harness=copilot --model=claude-sonnet-4 --thesis=datacenter --mode=backtest --start=2025-04-14 --end=2026-04-14
+```
+
 ## Scraper Commands
 
 ```bash

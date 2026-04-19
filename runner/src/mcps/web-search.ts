@@ -8,6 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
+import { readSimDate } from "../harness-mode/mcps/sim-clock.js"
 
 const server = new McpServer({
   name: "web-search",
@@ -16,7 +17,12 @@ const server = new McpServer({
 
 // In backtest mode, cap all news queries to this date so we don't see
 // news that wouldn't have existed at simulation time.
-const SIM_DATE = process.env.SIM_DATE ?? null
+const SIM_DATE_ENV = process.env.SIM_DATE ?? null
+const SIM_CLOCK_STATE_FILE = process.env.SIM_CLOCK_STATE_FILE ?? null
+
+function getSimDate(): string | null {
+  return readSimDate(SIM_CLOCK_STATE_FILE) ?? SIM_DATE_ENV
+}
 
 // ─── Alpaca News API ─────────────────────────────────────────────────────────
 
@@ -122,7 +128,8 @@ async function fetchAlpacaNews(query: string, limit = 20, lookbackDays = 7): Pro
   const tickers = extractTickers(query)
 
   // In backtest mode, anchor news window to SIM_DATE to avoid lookahead bias
-  const anchorDate = SIM_DATE ? new Date(SIM_DATE) : new Date()
+  const simDate = getSimDate()
+  const anchorDate = simDate ? new Date(simDate) : new Date()
   const start = new Date(anchorDate.getTime() - lookbackDays * 86400 * 1000).toISOString()
 
   const url = new URL(`${ALPACA_DATA_BASE}/v1beta1/news`)
@@ -235,9 +242,10 @@ server.tool(
   async ({ query, type, lookback_days }) => {
     try {
       let results: string
+      const simDate = getSimDate()
       if (type === "financial_news") {
         results = await fetchAlpacaNews(query, 20, lookback_days)
-      } else if (SIM_DATE) {
+      } else if (simDate) {
         // DuckDuckGo has no historical mode — skip it in backtests
         results = `[Backtest mode] General web search is unavailable during backtests (no historical index). Use financial_news for market data.`
       } else {
