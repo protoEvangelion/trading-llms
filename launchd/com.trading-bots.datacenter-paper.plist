@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trading-bots.datacenter-paper</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/panda/.bun/bin/bun</string>
+    <string>run</string>
+    <string>/Users/panda/dev/trading-bots/runner/src/harness.ts</string>
+    <string>--harness=copilot</string>
+    <string>--model=claude-sonnet-4</string>
+    <string>--thesis=datacenter</string>
+    <string>--mode=paper</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/panda/dev/trading-bots</string>
+
+  <!-- 8:15 AM CT = 9:15 AM ET = 15 min before opening bell, Mon–Fri -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>1</integer></dict>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer><key>Weekday</key><integer>5</integer></dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/Users/panda/dev/trading-bots/data/logs/launchd-datacenter.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/panda/dev/trading-bots/data/logs/launchd-datacenter-err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/panda/.bun/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>/Users/panda</string>
+  </dict>
+</dict>
+</plist>

@@ -335,6 +335,7 @@ function buildBotMcpConfigs(params: {
       env: {
         SIM_CLOCK_STATE_FILE: simClockFile,
         HARNESS_LOG_FILE: logFile,
+        HARNESS_BOT_ID: bot.id,
         TRADING_BOTS_DATA_DIR: process.env.TRADING_BOTS_DATA_DIR ?? "",
         ...(backtestStateFile ? {
           BACKTEST_STATE_FILE: backtestStateFile,
@@ -415,7 +416,7 @@ ${isBacktest
 2. Review portfolio state with \`get_portfolio()\` and \`get_recent_orders()\`.
 3. Gather fresh signals with the thesis-relevant MCP tools. Prefer a small number of targeted searches over many broad, repetitive ones.
 4. Make your decision with \`buy_stock()\`, \`sell_stock()\`, \`short_stock()\`, or \`do_nothing()\`.
-5. Call \`log_decision()\` with a concise markdown summary of what you did and why. Keep it brief: 2-4 bullets or a short paragraph.
+5. Call \`log_decision()\` with your action, symbol/amount if traded, and a concise markdown reasoning. Keep it brief: 2-4 bullets or a short paragraph.
 6. Call \`advance_to_next_trading_day()\` exactly once when the day is finished.
 7. When \`advance_to_next_trading_day()\` returns \`{"done": true}\`, write a short final performance summary and exit.`
   : `Live loop:
@@ -436,11 +437,11 @@ function buildToolDocs(bot: ScheduledBotConfig, config: HarnessRunConfig): strin
         "- `get_sim_state()` — current simulation date and day progress",
         "- `advance_to_next_trading_day()` — finish the day and move to the next trading day",
         "- `get_trading_calendar()` — full trading calendar for this run",
-        "- `log_decision(text)` — append a markdown decision note to the harness run log",
+        "- `log_decision(text, action, symbol?, amount?)` — record decision to DB and append a markdown note to the run log",
       ]
     : [
         "- `get_current_time()` — current wall-clock time in ET plus market-open status",
-        "- `log_decision(text)` — append a markdown decision note to the harness run log",
+        "- `log_decision(text, action, symbol?, amount?)` — record decision to DB and append a markdown note to the run log",
       ]
 
   if (bot.mcps.some((mcp) => mcp.name === "trade")) {

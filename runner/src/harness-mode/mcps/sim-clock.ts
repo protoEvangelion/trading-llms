@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from "fs"
 import { dirname } from "path"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
-import { getDb, logPnlSnapshot } from "../../db.js"
+import { getDb, logDecision, logPnlSnapshot } from "../../db.js"
 import { calculatePortfolioValue, getClosePrice } from "../../simulation.js"
 
 const CLOCK_FILE = process.env.SIM_CLOCK_STATE_FILE
@@ -27,6 +27,7 @@ const BACKTEST_STATE_FILE = process.env.BACKTEST_STATE_FILE ?? null
 const LOG_FILE = process.env.HARNESS_LOG_FILE ?? null
 const ALPACA_KEY = process.env.ALPACA_KEY ?? null
 const ALPACA_SECRET = process.env.ALPACA_SECRET ?? null
+const HARNESS_BOT_ID = process.env.HARNESS_BOT_ID ?? null
 
 const DEFAULT_STARTING_CASH = 100_000
 
@@ -169,10 +170,9 @@ function currentEtInfo(now = new Date()) {
 function createServer() {
   const server = new McpServer({ name: "sim-clock", version: "1.0.0" })
 
-  server.tool(
+  server.registerTool(
     "get_sim_state",
-    "Get the current simulation date and backtest progress. Call this at the start of each day.",
-    {},
+    { description: "Get the current simulation date and backtest progress. Call this at the start of each day." },
     async () => {
       const state = readClock()
       if (state.mode !== "backtest") {
@@ -194,10 +194,9 @@ function createServer() {
     }
   )
 
-  server.tool(
+  server.registerTool(
     "advance_to_next_trading_day",
-    "Mark the current trading day complete and advance to the next. Returns {done:true} when all days are finished — stop when you receive this.",
-    {},
+    { description: "Mark the current trading day complete and advance to the next. Returns {done:true} when all days are finished — stop when you receive this." },
     async () => {
       const state = readClock()
       if (state.mode !== "backtest") {
@@ -249,10 +248,9 @@ function createServer() {
     }
   )
 
-  server.tool(
+  server.registerTool(
     "get_trading_calendar",
-    "Get the full list of trading days for this backtest run.",
-    {},
+    { description: "Get the full list of trading days for this backtest run." },
     async () => {
       const state = readClock()
       return {
@@ -264,26 +262,52 @@ function createServer() {
     }
   )
 
-  server.tool(
+  server.registerTool(
     "get_current_time",
-    "Get the current real-world time in US Eastern timezone. Use for paper/live mode to check market hours.",
-    {},
+    { description: "Get the current real-world time in US Eastern timezone. Use for paper/live mode to check market hours." },
     async () => ({ content: [{ type: "text", text: JSON.stringify(currentEtInfo()) }] })
   )
 
-  server.tool(
+  server.registerTool(
     "log_decision",
-    "Append your trading decision and reasoning to the run log. Call this after every buy, sell, or hold decision.",
     {
-      text: z.string().describe("Markdown-formatted decision entry — include date, action, symbol, amount, and your reasoning"),
+      description: "Record your trading decision to the database and append a markdown note to the run log. Call this after every buy, sell, or hold decision.",
+      inputSchema: {
+        text: z.string().describe("Markdown-formatted reasoning — 2-4 bullets or a short paragraph"),
+        action: z.enum(["buy_stock", "sell_stock", "short_stock", "do_nothing"]).describe("The action taken this day"),
+        symbol: z.string().optional().describe("Ticker symbol, if a trade was made"),
+        amount: z.number().optional().describe("Dollar amount of the trade, if applicable"),
+      },
     },
-    async ({ text }) => {
-      if (!LOG_FILE) return { content: [{ type: "text", text: "No log file configured — decision not persisted." }] }
+    async ({ text, action, symbol, amount }) => {
+      const clock = readClock()
+      const simDate = clock.mode === "backtest" ? (clock.tradingDays[clock.currentDayIndex] ?? null) : null
+      const botId = HARNESS_BOT_ID ?? (BACKTEST_STATE_FILE ? readBacktestState().botId : null)
+
+      if (botId) {
+        try {
+          logDecision({
+            botId,
+            mode: clock.mode,
+            runId: clock.runId,
+            reasoning: text,
+            action,
+            symbol: symbol ?? undefined,
+            amount: amount ?? undefined,
+            toolCalls: [],
+            simDate: simDate ?? undefined,
+          })
+        } catch (err) {
+          console.error("[sim-clock] Failed to write decision to DB:", err)
+        }
+      }
+
+      if (!LOG_FILE) return { content: [{ type: "text", text: "Decision recorded." }] }
       try {
         mkdirSync(dirname(LOG_FILE), { recursive: true })
         const ts = new Date().toISOString().slice(0, 19).replace("T", " ")
         appendFileSync(LOG_FILE, `\n---\n_${ts}_\n\n${text}\n`, "utf8")
-        return { content: [{ type: "text", text: "Decision logged." }] }
+        return { content: [{ type: "text", text: "Decision recorded." }] }
       } catch (err) {
         return { content: [{ type: "text", text: `Log write failed: ${err instanceof Error ? err.message : String(err)}` }] }
       }

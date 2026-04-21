@@ -1,9 +1,7 @@
-import BetterSqlite3 from "better-sqlite3"
+import { Database } from "bun:sqlite"
 import { join } from "path"
 import { existsSync } from "fs"
 import type { AppMode } from "./mode"
-
-type Database = BetterSqlite3.Database
 
 interface DbSchemaCapabilities {
   hasRunsTable: boolean
@@ -31,7 +29,7 @@ function getDb(mode: AppMode): Database | null {
     return null
   }
 
-  const db = new BetterSqlite3(dbPath, { readonly: true })
+  const db = new Database(dbPath, { readonly: true })
   dbCache.set(mode, db)
   return db
 }
@@ -580,9 +578,18 @@ export function getDecisions(botId: string, mode: AppMode, limit = 50): Decision
       capabilities.hasRunsTable && capabilities.decisionsHasRunId,
     )
     if (latestRun?.source === "harness") {
-      return db.prepare(
+      const decisions = db.prepare(
         "SELECT * FROM decisions WHERE run_id = ? ORDER BY sim_date DESC, timestamp DESC LIMIT ?"
       ).all(latestRun.id, limit) as Decision[]
+      if (decisions.length > 0) return decisions
+      // Harness run predates decision logging — fall back to latest legacy run
+      const legacyRun = getLatestBacktestRun(db, capabilities, botId, false)
+      if (legacyRun) {
+        return db.prepare(
+          "SELECT * FROM decisions WHERE backtest_run_id = ? ORDER BY sim_date DESC, timestamp DESC LIMIT ?"
+        ).all(legacyRun.id, limit) as Decision[]
+      }
+      return []
     }
 
     if (latestRun?.source === "legacy") {

@@ -80,8 +80,40 @@ bun run runner/src/index.ts --env=staging --run-now=trump-bot
 ## Harness Commands
 
 ```bash
-# Run the Copilot harness with a Sonnet model over a backtest window
+# Backtest over a date range (writes to data/dev.db)
 bun run runner/src/harness.ts --harness=copilot --model=claude-sonnet-4 --thesis=datacenter --mode=backtest --start=2025-04-14 --end=2026-04-14
+
+# One-shot paper trading run (writes to data/staging.db)
+bun run runner/src/harness.ts --harness=copilot --model=claude-sonnet-4 --thesis=datacenter --mode=paper
+```
+
+## Scheduling Paper Trading (launchd)
+
+Harness paper runs are one-shot — copilot executes once and exits. Schedule them via launchd to fire daily at the bot's cron time.
+
+Prebuilt plist files live in `launchd/`. To install one:
+
+```bash
+cp launchd/com.trading-bots.datacenter-paper.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.trading-bots.datacenter-paper.plist
+```
+
+The plist fires at **3:45 AM local time, Mon–Fri** (matching datacenter-bot's pre-market cron). If your Mac is not on ET, adjust the `Hour` value in the plist before loading.
+
+Watch output in real time when it fires:
+```bash
+tail -f data/logs/launchd-datacenter.log
+```
+
+Trigger a test run immediately (without waiting for 3:45 AM):
+```bash
+launchctl start com.trading-bots.datacenter-paper
+```
+
+To uninstall:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.trading-bots.datacenter-paper.plist
+rm ~/Library/LaunchAgents/com.trading-bots.datacenter-paper.plist
 ```
 
 ## Scraper Commands
@@ -135,6 +167,9 @@ runner/src/
 
 scripts/
   scrape-trump-posts.ts Playwright scraper for Truth Social
+
+launchd/
+  com.trading-bots.datacenter-paper.plist  macOS scheduler for datacenter-bot paper trading
 
 webapp/src/
   routes/
