@@ -419,12 +419,13 @@ ${isBacktest
 5. Call \`log_decision()\` with your action, symbol/amount if traded, and a concise markdown reasoning. Keep it brief: 2-4 bullets or a short paragraph.
 6. Call \`advance_to_next_trading_day()\` exactly once when the day is finished.
 7. When \`advance_to_next_trading_day()\` returns \`{"done": true}\`, write a short final performance summary and exit.`
-  : `Live loop:
-1. Call \`get_current_time()\` to check whether the market is open.
-2. Review portfolio state and recent orders.
-3. Gather new signals with the thesis-relevant MCP tools. Prefer a small number of targeted searches over many broad, repetitive ones.
-4. Trade only when conditions warrant, and log each decision with \`log_decision()\` briefly.
-5. Continue operating until the operator stops the harness.`}
+  : `Pre-market analysis protocol (one-shot run — exit after logging your decision):
+1. Call \`get_current_time()\` to note the current ET time.
+2. Call \`get_portfolio()\` and \`get_recent_orders()\` to review current positions.
+3. Gather fresh signals using the thesis-relevant MCP tools. Prefer 2–4 targeted searches over many broad ones.
+4. Make your decision: buy, sell, short, or hold. Use \`buy_stock()\`, \`sell_stock()\`, \`short_stock()\`, or \`do_nothing()\` to act.
+5. Call \`log_decision()\` with your action, symbol/amount if traded, and concise markdown reasoning (2–4 bullets).
+6. **Exit immediately after logging.** Do not loop or continue monitoring — this harness is scheduled daily and will run again tomorrow.`}
 
 ## Available Tools
 ${toolLines.join("\n")}
@@ -478,7 +479,7 @@ function buildInitialPrompt(bot: ScheduledBotConfig, config: HarnessRunConfig, i
     return `Run the full ${bot.name} backtest from ${config.startDate} to ${config.endDate}. Starting cash is $${STARTING_CASH.toLocaleString()}. Begin with get_sim_state(), log every day's decision, and exit after advance_to_next_trading_day() returns {"done": true}.`
   }
 
-  return `You are now the live trading harness for ${bot.name} in ${config.mode} mode. Start with get_current_time(), inspect the portfolio, gather fresh signals, and continue operating until stopped.`
+  return `You are the daily pre-market analyst for ${bot.name} (${config.mode} mode). This is a one-shot run — you will make exactly one trading decision and then exit. Start with get_current_time(), inspect the portfolio with get_portfolio() and get_recent_orders(), gather 2–4 targeted signals, execute your trade or do_nothing(), then call log_decision() and exit. Do not loop.`
 }
 
 function finalizeBacktestRun(runId: number) {
