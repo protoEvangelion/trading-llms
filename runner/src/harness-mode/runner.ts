@@ -445,11 +445,11 @@ function buildToolDocs(bot: ScheduledBotConfig, config: HarnessRunConfig): strin
         "- `get_sim_state()` — current simulation date and day progress",
         "- `advance_to_next_trading_day()` — finish the day and move to the next trading day",
         "- `get_trading_calendar()` — full trading calendar for this run",
-        "- `log_decision(text, action, symbol?, amount?)` — record decision to DB and append a markdown note to the run log",
+        "- `log_decision(text, action, symbol?, amount?)` — record decision to DB. `text` must be exactly 4 bullets: (1) action/symbol/amount/% of portfolio, (2) sizing rationale, (3) specific signals with numbers, (4) risks and next catalyst",
       ]
     : [
         "- `get_current_time()` — current wall-clock time in ET plus market-open status",
-        "- `log_decision(text, action, symbol?, amount?)` — record decision to DB and append a markdown note to the run log",
+        "- `log_decision(text, action, symbol?, amount?)` — record decision to DB. `text` must be exactly 4 bullets: (1) action/symbol/amount/% of portfolio, (2) sizing rationale, (3) specific signals with numbers, (4) risks and next catalyst",
       ]
 
   if (bot.mcps.some((mcp) => mcp.name === "trade")) {

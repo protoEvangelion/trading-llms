@@ -271,7 +271,7 @@ function createServer() {
   server.registerTool(
     "log_decision",
     {
-      description: "Record your trading decision to the database and append a markdown note to the run log. Call this after every buy, sell, or hold decision.",
+      description: "Record your trading decision to the database and append a markdown note to the run log. Call this after every buy, sell, or hold decision. Format `text` as exactly 4 bullet points in this order: (1) Action — symbol, dollar amount, and % of portfolio (e.g. 'buy_stock VRT $45,000 — 48% of portfolio'). (2) Sizing rationale — why this allocation and not more or less; what would push you to a larger or smaller position. (3) Signal — the 1–2 specific facts with numbers that drove the decision; no summaries. (4) Risks / watch — what would change the thesis and the next catalyst to monitor. No headers, no prose outside the 4 bullets.",
       inputSchema: {
         text: z.string().describe("Markdown-formatted reasoning — 2-4 bullets or a short paragraph"),
         action: z.enum(["buy_stock", "sell_stock", "short_stock", "do_nothing"]).describe("The action taken this day"),

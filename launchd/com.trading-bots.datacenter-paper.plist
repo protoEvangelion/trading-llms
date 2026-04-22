@@ -37,7 +37,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/Users/panda/.bun/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>/Users/panda/.nvm/versions/node/v25.9.0/bin:/Users/panda/.bun/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>HOME</key>
     <string>/Users/panda</string>
   </dict>
