@@ -168,7 +168,7 @@ export async function getRecentBars(
     end: opts.end,
     limit: String(opts.limit),
     sort: opts.sort ?? "desc",
-    feed: "sip",
+    feed: "iex",
     adjustment: "split",
   }) as { bars: Record<string, AlpacaBar[]> }
   return data.bars ?? {}

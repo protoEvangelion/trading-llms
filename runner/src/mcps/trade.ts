@@ -16,7 +16,7 @@ import {
   getOrders,
   getRecentBars,
 } from "../alpaca.js"
-import { logPnlSnapshot } from "../db.js"
+import { getDb, logPnlSnapshot } from "../db.js"
 
 const server = new McpServer({
   name: "trade",
@@ -41,6 +41,42 @@ async function snapshotPortfolio(): Promise<void> {
         costBasis: parseFloat(p.avg_entry_price) * parseFloat(p.qty),
       }
     }
+
+    // Compute normalized spy_value: (today_spy / baseline_spy) * 100_000
+    // Baseline = earliest pnl_snapshot date for this bot that has spy_value set.
+    // If none exists yet, this is the first snapshot — use 100_000 as the baseline.
+    let spyValue: number | undefined
+    try {
+      const db = getDb()
+      const firstSnap = db.query<{ timestamp: string }, [string]>(
+        "SELECT timestamp FROM pnl_snapshots WHERE bot_id = ? AND spy_value IS NOT NULL ORDER BY timestamp ASC LIMIT 1"
+      ).get(HARNESS_BOT_ID)
+
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      const todayStr = yesterday.toISOString().slice(0, 10)
+
+      if (!firstSnap) {
+        spyValue = 100_000
+      } else {
+        const baselineDate = firstSnap.timestamp.slice(0, 10)
+        const lookbackStart = new Date(yesterday)
+        lookbackStart.setDate(lookbackStart.getDate() - 3)
+        const bars = await getRecentBars(config, ["SPY"], {
+          start: lookbackStart.toISOString().slice(0, 10),
+          end: todayStr,
+          limit: 10,
+          sort: "asc",
+        })
+        const spyBars = bars["SPY"] ?? []
+        const baseSpy = spyBars.find((b) => b.t.startsWith(baselineDate))?.c ?? spyBars[0]?.c
+        const todaySpy = spyBars[spyBars.length - 1]?.c
+        if (baseSpy && todaySpy) spyValue = (todaySpy / baseSpy) * 100_000
+      }
+    } catch {
+      // SPY fetch is best-effort — don't fail the snapshot
+    }
+
     logPnlSnapshot({
       botId: HARNESS_BOT_ID,
       mode: HARNESS_MODE,
@@ -48,6 +84,7 @@ async function snapshotPortfolio(): Promise<void> {
       portfolioValue: parseFloat(account.portfolio_value),
       cash: parseFloat(account.cash),
       positions: posMap,
+      spyValue,
     })
   } catch (err) {
     console.error("[trade-mcp] PnL snapshot failed:", err)
