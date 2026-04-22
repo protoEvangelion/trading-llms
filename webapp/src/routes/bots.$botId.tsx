@@ -1,3 +1,4 @@
+import ReactMarkdown from "react-markdown"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { createServerFn } from "@tanstack/react-start"
 import {
@@ -263,7 +264,12 @@ function BotDetail() {
                     {d.reasoning && (
                       <div>
                         <p className="text-xs font-medium text-slate-500 mb-1">Reasoning</p>
-                        <p className="text-sm text-slate-300 leading-relaxed">{d.reasoning}</p>
+                        <div className="text-sm text-slate-300 leading-relaxed prose prose-sm prose-invert max-w-none
+                          [&_ul]:space-y-2 [&_ul]:pl-0 [&_ul]:list-none
+                          [&_li]:border-l-2 [&_li]:border-white/10 [&_li]:pl-3
+                          [&_strong]:text-slate-100 [&_strong]:font-semibold">
+                          <ReactMarkdown>{d.reasoning}</ReactMarkdown>
+                        </div>
                       </div>
                     )}
                     {toolCalls.length > 0 && (
