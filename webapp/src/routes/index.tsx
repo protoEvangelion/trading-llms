@@ -34,7 +34,7 @@ const getBotSummaries = createServerFn({ method: "GET" })
     const botsConfig = loadBotsConfig()
     const botIds = botsConfig.bots.map((b) => b.id)
     const summaries = getAllBotSummaries(botIds, data.mode)
-    return summaries.map((s) => {
+    const enriched = summaries.map((s) => {
       const cfg = botsConfig.bots.find((b) => b.id === s.id)
       return {
         ...s,
@@ -44,6 +44,10 @@ const getBotSummaries = createServerFn({ method: "GET" })
         model: cfg?.model ?? "",
       }
     })
+    if (data.mode !== "backtesting") {
+      return enriched.filter((s) => s.lastDecision !== null || s.latestPnl !== null)
+    }
+    return enriched
   })
 
 const getChartData = createServerFn({ method: "GET" })

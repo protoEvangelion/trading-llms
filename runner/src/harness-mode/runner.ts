@@ -145,6 +145,7 @@ export async function runHarness(config: HarnessRunConfig): Promise<void> {
     bot,
     config,
     projectRoot,
+    runId,
     simClockFile,
     backtestStateFile,
     logFile,
@@ -321,11 +322,13 @@ function buildBotMcpConfigs(params: {
   bot: ScheduledBotConfig
   config: HarnessRunConfig
   projectRoot: string
+  runId: number
   simClockFile: string
   backtestStateFile: string | null
   logFile: string
 }): Record<string, McpServerSpec> {
-  const { bot, config, projectRoot, simClockFile, backtestStateFile, logFile } = params
+  const { bot, config, projectRoot, runId, simClockFile, backtestStateFile, logFile } = params
+  const tradingEnv = config.mode === "live" ? "prod" : config.mode === "backtest" ? "dev" : "staging"
   const runnerSrcDir = resolve(import.meta.dir, "..")
 
   const servers: Record<string, McpServerSpec> = {
@@ -373,6 +376,10 @@ function buildBotMcpConfigs(params: {
           ALPACA_SECRET: process.env[bot.alpacaSecretEnv] ?? "",
           ALPACA_ENDPOINT: process.env[bot.alpacaEndpointEnv] ?? "",
           TRADING_BOTS_DATA_DIR: process.env.TRADING_BOTS_DATA_DIR ?? "",
+          TRADING_ENV: tradingEnv,
+          HARNESS_BOT_ID: bot.id,
+          HARNESS_RUN_ID: String(runId),
+          HARNESS_MODE: config.mode,
         },
       }
       continue

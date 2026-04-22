@@ -16,6 +16,7 @@ import {
   getOrders,
   getRecentBars,
 } from "../alpaca.js"
+import { logPnlSnapshot } from "../db.js"
 
 const server = new McpServer({
   name: "trade",
@@ -25,10 +26,39 @@ const server = new McpServer({
 // bot-runner injects ALPACA_KEY / ALPACA_SECRET / ALPACA_ENDPOINT per-run
 const config = getAlpacaConfig("ALPACA_KEY", "ALPACA_SECRET", "ALPACA_ENDPOINT")
 
-server.tool(
+const HARNESS_BOT_ID = process.env.HARNESS_BOT_ID ?? null
+const HARNESS_RUN_ID = process.env.HARNESS_RUN_ID ? parseInt(process.env.HARNESS_RUN_ID, 10) : null
+const HARNESS_MODE = process.env.HARNESS_MODE ?? null
+
+async function snapshotPortfolio(): Promise<void> {
+  if (!HARNESS_BOT_ID || HARNESS_RUN_ID == null || !HARNESS_MODE) return
+  try {
+    const [account, positions] = await Promise.all([getAccount(config), getPositions(config)])
+    const posMap: Record<string, { qty: number; costBasis: number }> = {}
+    for (const p of positions) {
+      posMap[p.symbol] = {
+        qty: parseFloat(p.qty),
+        costBasis: parseFloat(p.avg_entry_price) * parseFloat(p.qty),
+      }
+    }
+    logPnlSnapshot({
+      botId: HARNESS_BOT_ID,
+      mode: HARNESS_MODE,
+      runId: HARNESS_RUN_ID,
+      portfolioValue: parseFloat(account.portfolio_value),
+      cash: parseFloat(account.cash),
+      positions: posMap,
+    })
+  } catch (err) {
+    console.error("[trade-mcp] PnL snapshot failed:", err)
+  }
+}
+
+server.registerTool(
   "get_market_snapshot",
-  "Get SPY (S&P 500) recent performance to gauge overall market regime. Call this first, before any buy/sell decision.",
-  {},
+  {
+    description: "Get SPY (S&P 500) recent performance to gauge overall market regime. Call this first, before any buy/sell decision.",
+  },
   async () => {
     try {
       const end = new Date()
@@ -44,7 +74,7 @@ server.tool(
       const bars = (allBars["SPY"] ?? []).map((b) => ({ date: b.t.slice(0, 10), close: b.c }))
       if (bars.length < 2) return { content: [{ type: "text", text: "Insufficient SPY data available." }] }
 
-      const [d0, d1, ...rest] = bars // d0 = most recent, d1 = day before
+      const [d0, d1, ...rest] = bars
       const change1d = ((d0.close - d1.close) / d1.close) * 100
       const d5 = rest[rest.length - 1]
       const change5d = d5 ? ((d0.close - d5.close) / d5.close) * 100 : null
@@ -69,16 +99,14 @@ server.tool(
   }
 )
 
-server.tool(
+server.registerTool(
   "get_portfolio",
-  "Get current portfolio summary including cash, equity, buying power, and all open positions",
-  {},
+  {
+    description: "Get current portfolio summary including cash, equity, buying power, and all open positions",
+  },
   async () => {
     try {
-      const [account, positions] = await Promise.all([
-        getAccount(config),
-        getPositions(config),
-      ])
+      const [account, positions] = await Promise.all([getAccount(config), getPositions(config)])
 
       const positionSummary = positions.length === 0
         ? "No open positions."
@@ -100,27 +128,20 @@ server.tool(
 
       return { content: [{ type: "text", text }] }
     } catch (err) {
-      return {
-        content: [
-          { type: "text", text: `Error fetching portfolio: ${err instanceof Error ? err.message : String(err)}` },
-        ],
-      }
+      return { content: [{ type: "text", text: `Error fetching portfolio: ${err instanceof Error ? err.message : String(err)}` }] }
     }
   }
 )
 
-server.tool(
+server.registerTool(
   "buy_stock",
-  "Buy a stock or ETF using a dollar amount. Use this when you have a strong conviction signal.",
   {
-    symbol: z.string().describe("Stock ticker symbol e.g. AAPL, SPY, DJT"),
-    dollar_amount: z
-      .number()
-      .positive()
-      .describe("Dollar amount to invest — not number of shares"),
-    reason: z
-      .string()
-      .describe("Your reasoning for this trade — required, be specific about which signal drove it"),
+    description: "Buy a stock or ETF using a dollar amount. Use this when you have a strong conviction signal.",
+    inputSchema: {
+      symbol: z.string().describe("Stock ticker symbol e.g. AAPL, SPY, DJT"),
+      dollar_amount: z.number().positive().describe("Dollar amount to invest — not number of shares"),
+      reason: z.string().describe("Your reasoning for this trade — required, be specific about which signal drove it"),
+    },
   },
   async ({ symbol, dollar_amount, reason }) => {
     try {
@@ -129,84 +150,61 @@ server.tool(
         notional: dollar_amount,
         side: "buy",
       })
-
+      await snapshotPortfolio()
       return {
-        content: [
-          {
-            type: "text",
-            text: `✅ Buy order submitted: $${dollar_amount} of ${symbol.toUpperCase()}\nReason: ${reason}\nOrder: ${JSON.stringify(order, null, 2)}`,
-          },
-        ],
+        content: [{
+          type: "text",
+          text: `✅ Buy order submitted: $${dollar_amount} of ${symbol.toUpperCase()}\nReason: ${reason}\nOrder: ${JSON.stringify(order, null, 2)}`,
+        }],
       }
     } catch (err) {
-      return {
-        content: [
-          { type: "text", text: `Error placing buy order: ${err instanceof Error ? err.message : String(err)}` },
-        ],
-      }
+      return { content: [{ type: "text", text: `Error placing buy order: ${err instanceof Error ? err.message : String(err)}` }] }
     }
   }
 )
 
-server.tool(
+server.registerTool(
   "sell_stock",
-  "Sell an existing position (fully or partially) by dollar amount",
   {
-    symbol: z.string().describe("Stock ticker symbol to sell"),
-    dollar_amount: z
-      .number()
-      .positive()
-      .optional()
-      .describe("Dollar amount to sell. Omit to sell entire position."),
-    reason: z.string().describe("Your reasoning for selling"),
+    description: "Sell an existing position (fully or partially) by dollar amount",
+    inputSchema: {
+      symbol: z.string().describe("Stock ticker symbol to sell"),
+      dollar_amount: z.number().positive().optional().describe("Dollar amount to sell. Omit to sell entire position."),
+      reason: z.string().describe("Your reasoning for selling"),
+    },
   },
   async ({ symbol, dollar_amount, reason }) => {
     try {
-      let order: unknown
-
-      if (dollar_amount) {
-        order = await submitOrder(config, {
-          symbol: symbol.toUpperCase(),
-          notional: dollar_amount,
-          side: "sell",
-        })
-      } else {
-        order = await closePosition(config, symbol.toUpperCase())
-      }
-
+      const order = dollar_amount
+        ? await submitOrder(config, { symbol: symbol.toUpperCase(), notional: dollar_amount, side: "sell" })
+        : await closePosition(config, symbol.toUpperCase())
+      await snapshotPortfolio()
       return {
-        content: [
-          {
-            type: "text",
-            text: `✅ Sell order submitted: ${dollar_amount ? `$${dollar_amount} of` : "full position in"} ${symbol.toUpperCase()}\nReason: ${reason}\nOrder: ${JSON.stringify(order, null, 2)}`,
-          },
-        ],
+        content: [{
+          type: "text",
+          text: `✅ Sell order submitted: ${dollar_amount ? `$${dollar_amount} of` : "full position in"} ${symbol.toUpperCase()}\nReason: ${reason}\nOrder: ${JSON.stringify(order, null, 2)}`,
+        }],
       }
     } catch (err) {
-      return {
-        content: [
-          { type: "text", text: `Error placing sell order: ${err instanceof Error ? err.message : String(err)}` },
-        ],
-      }
+      return { content: [{ type: "text", text: `Error placing sell order: ${err instanceof Error ? err.message : String(err)}` }] }
     }
   }
 )
 
-server.tool(
+server.registerTool(
   "short_stock",
-  "Open a short position — bet that a stock will go DOWN. Use when you have strong conviction a stock or sector will fall (e.g. tariff announcement crushes importers, peace deal crushes defense). Dollar amount is the notional value to short.",
   {
-    symbol: z.string().describe("Ticker to short — use inverse ETFs (SH, SDS, SPXS, SQQQ) for broad market shorts, individual stocks for company-specific shorts"),
-    dollar_amount: z.number().positive().describe("Notional dollar amount to short"),
-    reason: z.string().describe("Why you expect this to fall"),
+    description: "Open a short position — bet that a stock will go DOWN. Use when you have strong conviction a stock or sector will fall (e.g. tariff announcement crushes importers, peace deal crushes defense). Dollar amount is the notional value to short.",
+    inputSchema: {
+      symbol: z.string().describe("Ticker to short — use inverse ETFs (SH, SDS, SPXS, SQQQ) for broad market shorts, individual stocks for company-specific shorts"),
+      dollar_amount: z.number().positive().describe("Notional dollar amount to short"),
+      reason: z.string().describe("Why you expect this to fall"),
+    },
   },
   async ({ symbol, dollar_amount, reason }) => {
     try {
-      const order = await submitOrder(config, {
-        symbol: symbol.toUpperCase(),
-        notional: dollar_amount,
-        side: "sell",
-      })
+      const order = await submitOrder(config, { symbol: symbol.toUpperCase(), notional: dollar_amount, side: "sell" })
+      await snapshotPortfolio()
       return {
         content: [{ type: "text", text: `✅ Short order submitted: $${dollar_amount} of ${symbol.toUpperCase()}\nReason: ${reason}\nOrder: ${JSON.stringify(order, null, 2)}` }],
       }
@@ -216,49 +214,36 @@ server.tool(
   }
 )
 
-server.tool(
+server.registerTool(
   "do_nothing",
-  "Explicitly decide to make no trades this run. Only call this if you have NOT already called buy_stock or sell_stock — if you already traded, just stop without calling this.",
   {
-    reason: z
-      .string()
-      .describe("Why you are choosing not to trade — be specific about what signals you saw and why they don't warrant action"),
+    description: "Explicitly decide to make no trades this run. Only call this if you have NOT already called buy_stock or sell_stock — if you already traded, just stop without calling this.",
+    inputSchema: {
+      reason: z.string().describe("Why you are choosing not to trade — be specific about what signals you saw and why they don't warrant action"),
+    },
   },
   async ({ reason }) => {
+    await snapshotPortfolio()
     return {
-      content: [
-        {
-          type: "text",
-          text: `✅ No trade decision recorded.\nReason: ${reason}`,
-        },
-      ],
+      content: [{ type: "text", text: `✅ No trade decision recorded.\nReason: ${reason}` }],
     }
   }
 )
 
-server.tool(
+server.registerTool(
   "get_recent_orders",
-  "Get the most recent orders to understand recent trading activity",
   {
-    limit: z.number().default(5).describe("Number of recent orders to fetch"),
+    description: "Get the most recent orders to understand recent trading activity",
+    inputSchema: {
+      limit: z.number().default(5).describe("Number of recent orders to fetch"),
+    },
   },
   async ({ limit }) => {
     try {
       const orders = await getOrders(config, "all", limit)
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Recent orders:\n${JSON.stringify(orders, null, 2)}`,
-          },
-        ],
-      }
+      return { content: [{ type: "text", text: `Recent orders:\n${JSON.stringify(orders, null, 2)}` }] }
     } catch (err) {
-      return {
-        content: [
-          { type: "text", text: `Error fetching orders: ${err instanceof Error ? err.message : String(err)}` },
-        ],
-      }
+      return { content: [{ type: "text", text: `Error fetching orders: ${err instanceof Error ? err.message : String(err)}` }] }
     }
   }
 )
